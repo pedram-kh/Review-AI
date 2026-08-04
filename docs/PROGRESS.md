@@ -24,7 +24,10 @@ _(none yet)_
 
 ### Sprint 0 open questions for Stakeholder
 - ~~G1: which city?~~ ✅ ANSWERED: Warsaw multi-district, central districts first (see ROADMAP §4)
-- Stakeholder to create: AWS account resources (RDS), Outscraper account, Anthropic API account
+- Stakeholder to create: ~~AWS account resources (RDS)~~ done (see Sprint 0 notes), Outscraper account, Anthropic API account
+
+### Sprint 0 notes
+- 2026-08-04: RDS `reviewpilot-db` provisioned in eu-west-1 (db.t4g.micro, PostgreSQL 18.4, 20 GB gp3, storage-encrypted, deletion-protected, Single-AZ, 1-day backup retention, ~$15/mo). Ticket 0.2's "Stakeholder action first" (create RDS Postgres, put `DATABASE_URL` in `.env`) is done — `DATABASE_URL` is set in `.env`, `SELECT 1` verified against the live instance.
 
 ---
 

@@ -13,7 +13,7 @@
 
 | # | Ticket | Status | Files touched | Cursor notes | PM verdict |
 |---|---|---|---|---|---|
-| 0.1 | Repo + FastAPI skeleton + .env config | 🧪 | app/main.py, app/config.py, app/db.py, app/routers/health.py, tests/test_health.py, .env.example, .gitignore, pyproject.toml, README.md | Verified locally: `uvicorn app.main:app` → `GET /health` returns `{"status":"ok"}`; `pytest` and `ruff check .` both pass. Dev machine only had Python 3.9; installed Python 3.11 via Homebrew to match the required runtime — no code depends on this, just noting for the record. | |
+| 0.1 | Repo + FastAPI skeleton + .env config | ✅ | app/main.py, app/config.py, app/db.py, app/routers/health.py, tests/test_health.py, .env.example, .gitignore, pyproject.toml, README.md | Verified locally: `uvicorn app.main:app` → `GET /health` returns `{"status":"ok"}`; `pytest` and `ruff check .` both pass. Dev machine only had Python 3.9; installed Python 3.11 via Homebrew to match the required runtime — no code depends on this, just noting for the record. | ✅ ACCEPTED (PM, 2026-08-04) — env fixes approved (py3.11 via brew, gitignore negation for __init__.py). No scope creep. |
 | 0.2 | Postgres provisioned + connection from app | ⬜ | | | |
 | 0.3 | Schema v1: places, reviews, leads (+ migration) | ⬜ | | | |
 | 0.4 | Outscraper + Anthropic keys wired, /health checks both | ⬜ | | | |

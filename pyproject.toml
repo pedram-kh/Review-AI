@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-settings>=2.4",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ packages = ["app"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

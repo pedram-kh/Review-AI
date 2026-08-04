@@ -1,8 +1,17 @@
 from fastapi import APIRouter
+from sqlalchemy import text
+
+from app.db import engine
 
 router = APIRouter()
 
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    db_status = "ok"
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "error"
+    return {"status": "ok", "db": db_status}

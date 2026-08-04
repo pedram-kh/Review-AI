@@ -1,6 +1,26 @@
-.env
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
 .venv/
+venv/
+
+# Env / secrets
+.env
+
+# OS
 .DS_Store
+
+# Misc local artifacts
 AWSCLIV2.pkg
+
+# Un-ignore package markers (user's global gitignore excludes "_*")
+!**/__init__.py

@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models import Lead, Place, Review
 from app.prompts import PROMPT_VERSION, LeadContext, normalize_review_text
-from app.services.claude_client import ClaudeClient
+from app.response_checks import check_response
+from app.services.claude_client import MAX_TOKENS, ClaudeClient
 from app.services.claude_guard import ClaudeCallCapExceeded, cost_for_tokens, enforce_call_cap
 
 DEFAULT_LIMIT = 40
@@ -129,16 +130,32 @@ def write_review_file(
     path = directory / f"generation_batch_{run_date}_v{PROMPT_VERSION}.md"
 
     n_flagged = sum(1 for target, _ in records if target.context.is_health_flagged)
+    checks = {target.lead_id: check_response(response) for target, response in records}
+    truncated = [lid for lid, c in checks.items() if c.truncated]
+    signed = [lid for lid, c in checks.items() if c.has_signature]
+    denials = [lid for lid, c in checks.items() if c.has_denial]
+
     lines = [
         f"# Generation batch — {run_date} — prompt v{PROMPT_VERSION}",
         "",
         f"Prompt: `RESPONSE_PROMPT` v{PROMPT_VERSION} (docs/sprints/SPRINT_02.md "
-        f"§Prompt v{PROMPT_VERSION}), model `claude-sonnet-5`, `max_tokens=350`.",
+        f"§Prompt v{PROMPT_VERSION}), model `claude-sonnet-5`, `max_tokens={MAX_TOKENS}`.",
         "",
         f"Responses in this batch: **{len(records)}** (health-flagged: **{n_flagged}**).",
         "",
+        "## Automated checks",
+        "",
+        "| Check | Result | Leads |",
+        "|---|---|---|",
+        f"| Truncated (no sentence-ending punctuation) | {_verdict(truncated)} | "
+        f"{_lead_list(truncated)} |",
+        f"| Signature / sign-off (rule 2a) | {_verdict(signed)} | {_lead_list(signed)} |",
+        f"| Denial wording — needs human look (rule 5) | {_verdict(denials)} | "
+        f"{_lead_list(denials)} |",
+        "",
         "> Stakeholder: read every response below against LOGIC.md §7 (must / never lists).",
         "> Health-flagged ones additionally must contain zero admission language.",
+        "> The checks above are mechanical only — they cannot judge tone or relevance.",
         "",
         "---",
         "",
@@ -149,6 +166,8 @@ def write_review_file(
         rating = lead.rating if lead.rating is not None else "?"
         flag = lead.notes if lead.is_health_flagged else "—"
         review_date = lead.review_date.date().isoformat() if lead.review_date else "unknown"
+        lead_checks = checks[target.lead_id]
+        notices = list(lead_checks.failures) + (["denial?"] if lead_checks.has_denial else [])
 
         lines += [
             f"## {i}. {lead.name or '(no name)'} — {rating}★",
@@ -157,6 +176,7 @@ def write_review_file(
             f"- **Address:** {lead.address or '(none)'}",
             f"- **Review date:** {review_date}",
             f"- **Health flag:** {flag}",
+            f"- **Checks:** {'⚠️ ' + ', '.join(notices) if notices else 'clean'}",
             "",
             "**Review:**",
             "",
@@ -172,6 +192,14 @@ def write_review_file(
 
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def _verdict(offenders: list[int]) -> str:
+    return "✅ pass" if not offenders else f"⚠️ {len(offenders)}"
+
+
+def _lead_list(offenders: list[int]) -> str:
+    return "—" if not offenders else ", ".join(str(lid) for lid in offenders)
 
 
 def _blockquote(text: str) -> str:
@@ -211,6 +239,9 @@ def run(
         "ran": False,
         "generated": 0,
         "failures": 0,
+        "truncated": 0,
+        "signatures": 0,
+        "denials": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "actual_cost_usd": 0.0,
@@ -271,6 +302,12 @@ def run(
     run_date = datetime.now(UTC).date().isoformat()
     review_path = write_review_file(records, run_date)
 
+    batch_checks = [check_response(response) for _, response in records]
+    result.update(
+        truncated=sum(1 for c in batch_checks if c.truncated),
+        signatures=sum(1 for c in batch_checks if c.has_signature),
+        denials=sum(1 for c in batch_checks if c.has_denial),
+    )
     result.update(
         ran=True,
         input_tokens=client.input_tokens,
@@ -281,6 +318,10 @@ def run(
 
     on_progress(f"Generated: {result['generated']}")
     on_progress(f"Failures: {result['failures']}")
+    on_progress(
+        f"Checks — truncated: {result['truncated']}, signatures: {result['signatures']}, "
+        f"denial wording (needs human look): {result['denials']}"
+    )
     on_progress(f"Token usage: {client.input_tokens} in / {client.output_tokens} out")
     on_progress(f"Actual cost: ${result['actual_cost_usd']:.2f}")
     on_progress(f"Review file: {review_path}")

@@ -12,7 +12,9 @@ from app.prompts import LeadContext, render
 from app.services.claude_guard import MAX_CLAUDE_CALLS_PER_RUN, ClaudeCallCapExceeded
 
 MODEL = "claude-sonnet-5"
-MAX_TOKENS = 350
+# Raised from 350 in prompt v1.2: Polish tokenizes into more tokens than English, and long
+# responses were being truncated mid-word at 350 (found in the v1.1 batch, leads 21 and 22).
+MAX_TOKENS = 500
 
 
 class ClaudeClient:

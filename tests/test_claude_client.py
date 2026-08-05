@@ -1,4 +1,6 @@
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -45,8 +47,14 @@ def test_generate_response_calls_sdk_with_model_and_max_tokens(mock_anthropic: M
 
 
 def test_model_and_max_tokens_match_the_ticket() -> None:
+    # max_tokens is read out of SPRINT_02.md rather than repeated here: the PM raised it in
+    # v1.2 and it will move again, so the doc stays the single source of truth.
+    doc = (
+        Path(__file__).resolve().parents[1] / "docs" / "sprints" / "SPRINT_02.md"
+    ).read_text(encoding="utf-8")
+
     assert MODEL == "claude-sonnet-5"
-    assert MAX_TOKENS == 350
+    assert MAX_TOKENS == int(re.search(r"`max_tokens=(\d+)`", doc).group(1))
 
 
 @patch("app.services.claude_client.Anthropic")

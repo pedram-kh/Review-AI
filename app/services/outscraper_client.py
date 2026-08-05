@@ -41,6 +41,13 @@ class OutscraperClient:
         )
         return _flatten(raw)
 
+    def emails_and_contacts(self, domains: list[str]) -> list[dict]:
+        """Outscraper Emails & Contacts for `domains` — emails, social links and phones.
+        Enforces the domains-per-run cap before calling the API. One billed record per
+        domain, so the cap and the cost both key off len(domains)."""
+        enforce_caps(n_places=0, n_review_records=0, n_domains=len(domains))
+        return _flatten(self._client.emails_and_contacts(domains))
+
 
 def _flatten(result: list | dict) -> list[dict]:
     """Outscraper wraps every request in an outer list keyed by query (we always send a

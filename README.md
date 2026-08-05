@@ -37,6 +37,26 @@ cost estimate and exit without calling the API or touching the DB via the API.
   leads use `ON CONFLICT (place_id) DO NOTHING`), so re-running the pipeline — or any single job
   on its own — is always safe and won't create duplicates.
 
+## Response + outreach (Sprint 2)
+
+- `generate` — one Claude call per lead (LOGIC.md §7), stores `generated_response` and the
+  Anthropic `stop_reason`, writes a Stakeholder review file to `docs/review/`. The review file is
+  rebuilt from the DB on every run, so regenerating a subset refreshes the existing file rather
+  than replacing it.
+  `python -m app.jobs.generate --limit 40 --yes` · `--all --yes` ·
+  `--lead-id 87 --regenerate --yes` (redo one lead)
+- `enrich` — Outscraper Emails & Contacts for lead places with a website; fills
+  `places.email` / `places.fb_url` (never overwrites an existing value) and promotes leads to
+  `enriched` once any channel exists. `--recheck` also re-queries leads already at `enriched`
+  that still have no email or Facebook page (a lead can be promoted on phone alone).
+  `python -m app.jobs.enrich --yes`
+- `assemble_outreach` — renders the outreach template into `leads.outreach_message`, sets the
+  channel by LOGIC.md §6 priority (Facebook → email → contact form) and queues the lead. No API
+  calls. Health-flagged leads are never queued. **Blocked until the Stakeholder approves the
+  template**: while `TEMPLATE_APPROVED_ON` in `app/templates.py` is `None` the job only previews.
+  Needs `REPLY_ADDRESS` in `.env` — it is signed into every message (LOGIC.md §7b).
+  `python -m app.jobs.assemble_outreach` · `--preview`
+
 ## Database migrations (Alembic)
 
 - Apply all migrations: `alembic upgrade head`

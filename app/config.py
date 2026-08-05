@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     database_url: str = ""
     outscraper_api_key: str = ""
     anthropic_api_key: str = ""
+    # Signed into every outreach message (LOGIC.md §7b: real name, real reply address).
+    reply_address: str = ""
 
 
 def _load_settings() -> Settings:

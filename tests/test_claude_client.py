@@ -18,7 +18,12 @@ LEAD = LeadContext(
 )
 
 
-def _fake_message(text: str, input_tokens: int = 900, output_tokens: int = 220) -> MagicMock:
+def _fake_message(
+    text: str,
+    input_tokens: int = 900,
+    output_tokens: int = 220,
+    stop_reason: str = "end_turn",
+) -> MagicMock:
     block = MagicMock()
     block.type = "text"
     block.text = text
@@ -27,6 +32,7 @@ def _fake_message(text: str, input_tokens: int = 900, output_tokens: int = 220) 
     message.content = [block]
     message.usage.input_tokens = input_tokens
     message.usage.output_tokens = output_tokens
+    message.stop_reason = stop_reason
     return message
 
 
@@ -38,12 +44,35 @@ def test_generate_response_calls_sdk_with_model_and_max_tokens(mock_anthropic: M
     client = ClaudeClient(api_key="fake-key")
     response = client.generate_response(LEAD)
 
-    assert response == "Szanowni Państwo, dziękujemy..."
+    assert response.text == "Szanowni Państwo, dziękujemy..."
     mock_sdk.messages.create.assert_called_once_with(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         messages=[{"role": "user", "content": render(LEAD)}],
     )
+
+
+@patch("app.services.claude_client.Anthropic")
+def test_generate_response_reports_the_stop_reason(mock_anthropic: MagicMock) -> None:
+    mock_sdk = mock_anthropic.return_value
+    mock_sdk.messages.create.return_value = _fake_message(
+        "obcięta odpowie", stop_reason="max_tokens"
+    )
+
+    response = ClaudeClient(api_key="fake-key").generate_response(LEAD)
+
+    assert response.stop_reason == "max_tokens"
+    assert response.hit_token_ceiling is True
+
+
+@patch("app.services.claude_client.Anthropic")
+def test_normal_completion_is_not_a_ceiling_hit(mock_anthropic: MagicMock) -> None:
+    mock_sdk = mock_anthropic.return_value
+    mock_sdk.messages.create.return_value = _fake_message(
+        "Pełna odpowiedź.", stop_reason="end_turn"
+    )
+
+    assert ClaudeClient(api_key="fake-key").generate_response(LEAD).hit_token_ceiling is False
 
 
 def test_model_and_max_tokens_match_the_ticket() -> None:
@@ -79,13 +108,14 @@ def test_generate_response_joins_only_text_blocks(mock_anthropic: MagicMock) -> 
     message = MagicMock(content=[text_block, other_block, tail_block])
     message.usage.input_tokens = 10
     message.usage.output_tokens = 5
+    message.stop_reason = "end_turn"
 
     mock_sdk = mock_anthropic.return_value
     mock_sdk.messages.create.return_value = message
 
     client = ClaudeClient(api_key="fake-key")
 
-    assert client.generate_response(LEAD) == "część pierwsza i druga"
+    assert client.generate_response(LEAD).text == "część pierwsza i druga"
 
 
 @patch("app.services.claude_client.Anthropic")

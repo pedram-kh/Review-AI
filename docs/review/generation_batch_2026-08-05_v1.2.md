@@ -8,9 +8,11 @@ Responses in this batch: **40** (health-flagged: **3**).
 
 | Check | Result | Leads |
 |---|---|---|
-| Truncated (no sentence-ending punctuation) | ⚠️ 1 | 87 |
+| Truncated (API `stop_reason`, or no sentence-ending punctuation) | ✅ pass | — |
 | Signature / sign-off (rule 2a) | ✅ pass | — |
+| Over hard word limit (LOGIC §7: >130) | ✅ pass | — |
 | Denial wording — needs human look (rule 5) | ✅ pass | — |
+| Outside 60–120 target but tolerated (121–130) | 4 (accepted) | 37, 40, 38, 55 |
 
 > Stakeholder: read every response below against LOGIC.md §7 (must / never lists).
 > Health-flagged ones additionally must contain zero admission language.
@@ -24,6 +26,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Wierzbowa 9/308, 00-094 Warszawa, Polska
 - **Review date:** 2026-07-27
 - **Health flag:** —
+- **Words:** 100
 - **Checks:** clean
 
 **Review:**
@@ -48,6 +51,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Widok 8, 00-023 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 125
 - **Checks:** clean
 
 **Review:**
@@ -72,6 +76,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Świętokrzyska 30, 00-116 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 93
 - **Checks:** clean
 
 **Review:**
@@ -93,6 +98,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowy Świat 44, 00-363 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 110
 - **Checks:** clean
 
 **Review:**
@@ -115,6 +121,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Al. Jerozolimskie 47, 00-697 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 115
 - **Checks:** clean
 
 **Review:**
@@ -135,6 +142,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Rynek Starego Miasta 12/14, 00-272 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 102
 - **Checks:** clean
 
 **Review:**
@@ -163,6 +171,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Podwale 25, 00-261 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 101
 - **Checks:** clean
 
 **Review:**
@@ -187,6 +196,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Rynek Starego Miasta 1/3, 00-281 Warszawa, Polska
 - **Review date:** 2026-07-22
 - **Health flag:** —
+- **Words:** 99
 - **Checks:** clean
 
 **Review:**
@@ -207,6 +217,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Krakowskie Przedmieście 55, 00-071 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 101
 - **Checks:** clean
 
 **Review:**
@@ -235,6 +246,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Zgoda 3/5, 00-018 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 96
 - **Checks:** clean
 
 **Review:**
@@ -255,6 +267,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** plac Konstytucji 1, 00-647 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 120
 - **Checks:** clean
 
 **Review:**
@@ -283,6 +296,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Marszałkowska 53, 00-676 Warszawa, Polska
 - **Review date:** 2026-07-31
 - **Health flag:** —
+- **Words:** 104
 - **Checks:** clean
 
 **Review:**
@@ -305,6 +319,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** aleja Jana Chrystiana Szucha 17, 00-582 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 104
 - **Checks:** clean
 
 **Review:**
@@ -329,6 +344,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Krucza 23/m44, 00-521 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 104
 - **Checks:** clean
 
 **Review:**
@@ -349,6 +365,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Chmielna 13a, 00-021 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 95
 - **Checks:** clean
 
 **Review:**
@@ -371,6 +388,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Chmielna 35, 00-801 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 114
 - **Checks:** clean
 
 **Review:**
@@ -391,6 +409,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Marszałkowska 115, 00-102 Warszawa, Polska
 - **Review date:** 2026-08-04
 - **Health flag:** —
+- **Words:** 104
 - **Checks:** clean
 
 **Review:**
@@ -411,6 +430,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Chmielna 36A, 02-020 Warszawa, Polska
 - **Review date:** 2026-07-20
 - **Health flag:** —
+- **Words:** 116
 - **Checks:** clean
 
 **Review:**
@@ -437,6 +457,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Oboźna 9/104, 00-332 Warszawa, Polska
 - **Review date:** 2026-08-02
 - **Health flag:** —
+- **Words:** 86
 - **Checks:** clean
 
 **Review:**
@@ -457,6 +478,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Rynek Starego Miasta 16, 00-272 Warszawa, Polska
 - **Review date:** 2026-07-24
 - **Health flag:** —
+- **Words:** 97
 - **Checks:** clean
 
 **Review:**
@@ -481,6 +503,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Koszykowa 63, 00-015 Warszawa, Polska
 - **Review date:** 2026-07-26
 - **Health flag:** —
+- **Words:** 95
 - **Checks:** clean
 
 **Review:**
@@ -505,6 +528,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowogrodzka 56, 00-695 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 114
 - **Checks:** clean
 
 **Review:**
@@ -529,6 +553,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowogrodzka 15, 00-511 Warszawa, Polska
 - **Review date:** 2026-07-27
 - **Health flag:** HEALTH_FLAG: cockroach
+- **Words:** 126
 - **Checks:** clean
 
 **Review:**
@@ -559,6 +584,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowy Świat 46, 00-363 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 105
 - **Checks:** clean
 
 **Review:**
@@ -584,6 +610,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowogrodzka 47A, 00-695 Warszawa, Polska
 - **Review date:** 2026-07-21
 - **Health flag:** —
+- **Words:** 126
 - **Checks:** clean
 
 **Review:**
@@ -608,6 +635,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Foksal 16, 00-372 Warszawa, Polska
 - **Review date:** 2026-08-02
 - **Health flag:** —
+- **Words:** 104
 - **Checks:** clean
 
 **Review:**
@@ -640,6 +668,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Widok 16, 00-023 Warszawa, Polska
 - **Review date:** 2026-07-22
 - **Health flag:** HEALTH_FLAG: mold
+- **Words:** 125
 - **Checks:** clean
 
 **Review:**
@@ -662,6 +691,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Al. Jerozolimskie 50, 00-024 Warszawa, Polska
 - **Review date:** 2026-07-29
 - **Health flag:** —
+- **Words:** 95
 - **Checks:** clean
 
 **Review:**
@@ -684,6 +714,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Złota 8, 00-019 Warszawa, Polska
 - **Review date:** 2026-08-02
 - **Health flag:** —
+- **Words:** 100
 - **Checks:** clean
 
 **Review:**
@@ -704,6 +735,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Żurawia 6/12, 00-503 Warszawa, Polska
 - **Review date:** 2026-08-01
 - **Health flag:** —
+- **Words:** 89
 - **Checks:** clean
 
 **Review:**
@@ -728,6 +760,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowogrodzka 38, 00-691 Warszawa, Polska
 - **Review date:** 2026-07-29
 - **Health flag:** —
+- **Words:** 91
 - **Checks:** clean
 
 **Review:**
@@ -748,6 +781,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Nowogrodzka 22, 00-511 Warszawa, Polska
 - **Review date:** 2026-07-14
 - **Health flag:** —
+- **Words:** 87
 - **Checks:** clean
 
 **Review:**
@@ -768,6 +802,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Złota 48/54, 00-120 Warszawa, Polska
 - **Review date:** 2026-07-14
 - **Health flag:** —
+- **Words:** 94
 - **Checks:** clean
 
 **Review:**
@@ -789,6 +824,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Widok 9, 00-023 Warszawa, Polska
 - **Review date:** 2026-07-24
 - **Health flag:** —
+- **Words:** 92
 - **Checks:** clean
 
 **Review:**
@@ -819,6 +855,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Zgoda 4, 00-018 Warszawa, Polska
 - **Review date:** 2026-08-01
 - **Health flag:** —
+- **Words:** 87
 - **Checks:** clean
 
 **Review:**
@@ -839,6 +876,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Żurawia 45, 00-680 Warszawa, Polska
 - **Review date:** 2026-08-02
 - **Health flag:** —
+- **Words:** 83
 - **Checks:** clean
 
 **Review:**
@@ -859,6 +897,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Emilii Plater 14, 00-669 Warszawa, Polska
 - **Review date:** 2026-07-07
 - **Health flag:** —
+- **Words:** 79
 - **Checks:** clean
 
 **Review:**
@@ -880,6 +919,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Krucza 51, 00-022 róg, Polska
 - **Review date:** 2026-07-23
 - **Health flag:** —
+- **Words:** 95
 - **Checks:** clean
 
 **Review:**
@@ -900,6 +940,7 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Al. Jerozolimskie 54, 00-495 Warszawa, Polska
 - **Review date:** 2026-08-03
 - **Health flag:** —
+- **Words:** 79
 - **Checks:** clean
 
 **Review:**
@@ -920,7 +961,8 @@ Responses in this batch: **40** (health-flagged: **3**).
 - **Address:** Chmielna 5/5, 00-021 Warszawa, Polska
 - **Review date:** 2026-07-20
 - **Health flag:** HEALTH_FLAG: brudn
-- **Checks:** ⚠️ truncated
+- **Words:** 98
+- **Checks:** clean
 
 **Review:**
 
@@ -930,6 +972,6 @@ Responses in this batch: **40** (health-flagged: **3**).
 
 > Szanowni Państwo,
 >
-> dziękujemy za poświęcony czas i szczegółowy opis wizyty. Przykro nam czytać o długim czasie oczekiwania na zamówienie oraz o Państwa uwagach dotyczących wyglądu burgera, a także o stanie stolików i nastroju obsługi tego dnia – to sygnały, które traktujemy poważnie i z pewnością się im przyjrzymy. Szczególną uwagę zwrócimy zarówno na tempo obsługi kuchni, jak i na porządek w sali oraz podejście personelu do gości. Cieszymy się, że frytki i piwo przypadły Państwu do gustu, oraz że dostrzegli Państwo potencjał tego miejsca – to dla nas ważne. Jeśli mieliby Państwo ochotę opowiedzieć więcej o tym zamówieniu, prosimy o kontakt bezpośredni – chętnie wysłuchamy szczegółów i odniesiemy się do kon
+> dziękujemy za poświęcony czas na opinię. Przykro nam czytać o długim czasie oczekiwania na zamówienie, o stanie burgera oraz o czystości stolików, a także o odbiorze pracy obsługi tego wieczoru. Każde takie zgłoszenie traktujemy poważnie i przyjrzymy się dokładnie temu, co Państwo opisali, zwracając szczególną uwagę na wskazane kwestie. Cieszymy się, że frytki i piwo przypadły Państwu do gustu, a lokalizacja i klimat miejsca zostały docenione. Będzie nam bardzo zależało na wyjaśnieniu tej sytuacji bezpośrednio – zapraszamy do kontaktu mailowego lub telefonicznego z podaniem daty i godziny wizyty, abyśmy mogli odnieść się do konkretnych okoliczności tego wieczoru.
 
 ---

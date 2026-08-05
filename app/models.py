@@ -47,6 +47,9 @@ class Lead(Base):
     # values: new|response_generated|enriched|queued|sent|replied|converted|dead
     status: Mapped[str] = mapped_column(Text, server_default="new")
     generated_response: Mapped[str | None] = mapped_column(Text)
+    # Anthropic stop_reason for the call that produced generated_response ("end_turn",
+    # "max_tokens", ...). Kept so truncation is a fact we recorded, not one we infer later.
+    generation_stop_reason: Mapped[str | None] = mapped_column(Text)
     outreach_message: Mapped[str | None] = mapped_column(Text)
     channel: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

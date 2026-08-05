@@ -42,6 +42,8 @@ select = ["E", "F", "I", "UP"]
 # The prompt text must stay character-for-character identical to docs/sprints/SPRINT_02.md
 # §Prompt v1 (enforced by tests/test_prompts.py), so its long lines can't be rewrapped.
 "app/prompts.py" = ["E501"]
+# Same reason for the outreach template (tests/test_templates.py enforces doc parity).
+"app/templates.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

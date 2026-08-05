@@ -77,7 +77,7 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 **The response must:**
 - Match the review's language (PL default; EN if review is EN). PL register: formal-warm, "Państwo"
-- Be 60–120 words, no emojis, no marketing language
+- Be 60–120 words (target; >130 = hard fail — 121–130 tolerated, chasing ±6 words isn't worth a prompt round), no emojis, no marketing language
 - Address the reviewer's SPECIFIC complaint(s) in the first two sentences — never generic
 - Contain: brief acknowledgment/apology → one concrete, honest quality commitment → invitation to continue offline (phone/email if known, otherwise "prosimy o kontakt")
 - Sound like a busy owner who cares, not a PR department
@@ -113,6 +113,7 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-05 | §7 word limit clarified after v1.2 batch: 60–120 target, >130 hard fail (4 EN responses at 121–126 accepted; no further prompt iteration) | Stakeholder + PM |
 | 2026-08-05 | §7 finalized v1.3 (generation must/never lists, one-call self-check flow, health-flag handling) + §7b outreach message rules added. Sprint 2 planning decisions: tune-on-40-first, Outscraper contacts enrichment, template drafted for approval | Stakeholder + PM |
 | 2026-08-05 | §2 v1.2: `zatru` stem gets negative lookahead `zatru(?!dni)` — second live false positive ('zatrudnieniu'/hiring, ticket 1.5 milestone run). Genuine flags (cockroach, mold) unaffected | Stakeholder + PM |
 | 2026-08-05 | §2 keyword matching v1.1: split into whole-word tier (short standalone words, fixes 'rat'-in-'akurat' false positive found in ticket 1.4 live run) + substring tier (stems/phrases keep inflection coverage). Also broadened stems: zatrucie→zatru, salmonella→salmonell; added plurals robaki/myszy/szczury/rats/mice | Stakeholder + PM |

@@ -1,13 +1,15 @@
 """Response generation job (LOGIC.md §7 generation rules, §3 status lifecycle, §4 caps).
 
 Usage:
-    python -m app.jobs.generate --limit 40 --yes    # tuning batch (default limit 40)
-    python -m app.jobs.generate --all --yes         # every remaining new lead
-    python -m app.jobs.generate                     # dry run: estimate only, no API call
+    python -m app.jobs.generate --limit 40 --yes        # tuning batch (default limit 40)
+    python -m app.jobs.generate --all --yes             # every remaining new lead
+    python -m app.jobs.generate --lead-id 87 --regenerate --yes   # redo one lead
+    python -m app.jobs.generate                         # dry run: estimate only, no API call
 
-One Claude call per lead (LOGIC.md §7). Stores the text in `leads.generated_response`, advances
-status `new` -> `response_generated`, and never touches `leads.notes`, so health flags survive.
-Each lead is committed as it completes, so an API failure partway through keeps earlier work.
+One Claude call per lead (LOGIC.md §7). Stores the text in `leads.generated_response`, the
+Anthropic stop_reason in `leads.generation_stop_reason`, advances status `new` ->
+`response_generated`, and never touches `leads.notes`, so health flags survive. Each lead is
+committed as it completes, so an API failure partway through keeps earlier work.
 """
 
 import argparse
@@ -54,21 +56,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--regenerate",
         action="store_true",
-        help="Also regenerate leads that already have a generated_response.",
+        help="Re-run the leads that already have a generated_response.",
+    )
+    parser.add_argument(
+        "--lead-id",
+        type=int,
+        action="append",
+        dest="lead_ids",
+        help="Restrict the run to specific lead IDs (repeatable). Useful for redoing one "
+        "defective response without paying to regenerate a whole batch.",
     )
     parser.add_argument("--yes", action="store_true", help="Actually call the API and spend money.")
     return parser.parse_args(argv)
 
 
-def load_candidates(session: Session, regenerate: bool) -> list[GenerationTarget]:
-    """All eligible leads in created_at order.
-
-    Normal run: leads still awaiting a response (LOGIC.md §3 status='new', nothing generated yet).
-    --regenerate: exactly the leads that already carry a generated_response, i.e. the batch
-    currently under review — that's the tuning-loop case, re-running the same leads through a
-    new prompt version, so it deliberately ignores status and the health-flag quota.
-    """
-    stmt = (
+def _lead_context_columns():
+    return (
         select(
             Lead.lead_id,
             Place.name,
@@ -83,13 +86,47 @@ def load_candidates(session: Session, regenerate: bool) -> list[GenerationTarget
         .join(Review, Review.review_id == Lead.review_id)
         .order_by(Lead.created_at)
     )
+
+
+def load_candidates(
+    session: Session, regenerate: bool, lead_ids: list[int] | None = None
+) -> list[GenerationTarget]:
+    """All eligible leads in created_at order.
+
+    Normal run: leads still awaiting a response (LOGIC.md §3 status='new', nothing generated yet).
+    --regenerate: exactly the leads that already carry a generated_response, i.e. the batch
+    currently under review — that's the tuning-loop case, re-running the same leads through a
+    new prompt version, so it deliberately ignores status and the health-flag quota.
+    `lead_ids` narrows either mode to specific leads.
+    """
+    stmt = _lead_context_columns()
     if regenerate:
         stmt = stmt.where(Lead.generated_response.isnot(None))
     else:
         stmt = stmt.where(Lead.status == NEW_STATUS, Lead.generated_response.is_(None))
+    if lead_ids:
+        stmt = stmt.where(Lead.lead_id.in_(lead_ids))
 
     return [
         GenerationTarget(lead_id=row[0], context=LeadContext(*row[1:]))
+        for row in session.execute(stmt)
+    ]
+
+
+def load_generated_batch(session: Session) -> list[tuple[GenerationTarget, str, str | None]]:
+    """Every lead that currently holds a generated response, with its stored stop_reason.
+
+    The review file is rebuilt from this rather than from just the leads touched in the current
+    run — otherwise regenerating a single defective lead would overwrite the 40-lead file with a
+    one-lead file. Reading it back from the DB also guarantees the file matches what is stored.
+    """
+    stmt = _lead_context_columns().add_columns(
+        Lead.generated_response, Lead.generation_stop_reason
+    )
+    stmt = stmt.where(Lead.generated_response.isnot(None))
+
+    return [
+        (GenerationTarget(lead_id=row[0], context=LeadContext(*row[1:7])), row[7], row[8])
         for row in session.execute(stmt)
     ]
 
@@ -118,22 +155,30 @@ def build_batch(candidates: list[GenerationTarget], limit: int) -> list[Generati
 
 
 def write_review_file(
-    records: list[tuple[GenerationTarget, str]], run_date: str, directory: Path = REVIEW_DIR
+    records: list[tuple[GenerationTarget, str, str | None]],
+    run_date: str,
+    directory: Path = REVIEW_DIR,
 ) -> Path:
     """Writes the Stakeholder review file: one section per lead with everything needed to judge
     the response without opening the DB.
 
-    The prompt version is part of the filename so a re-run under a new prompt version sits
-    beside the batch it replaces instead of overwriting it — the tuning loop compares them.
+    Each record is (target, response_text, stop_reason). The prompt version is part of the
+    filename so a re-run under a new prompt version sits beside the batch it replaces instead
+    of overwriting it — the tuning loop compares them.
     """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"generation_batch_{run_date}_v{PROMPT_VERSION}.md"
 
-    n_flagged = sum(1 for target, _ in records if target.context.is_health_flagged)
-    checks = {target.lead_id: check_response(response) for target, response in records}
+    n_flagged = sum(1 for target, _, _ in records if target.context.is_health_flagged)
+    checks = {
+        target.lead_id: check_response(response, stop_reason)
+        for target, response, stop_reason in records
+    }
     truncated = [lid for lid, c in checks.items() if c.truncated]
     signed = [lid for lid, c in checks.items() if c.has_signature]
     denials = [lid for lid, c in checks.items() if c.has_denial]
+    over_hard = [lid for lid, c in checks.items() if c.over_hard_word_limit]
+    over_target = [lid for lid, c in checks.items() if c.outside_word_target]
 
     lines = [
         f"# Generation batch — {run_date} — prompt v{PROMPT_VERSION}",
@@ -147,11 +192,15 @@ def write_review_file(
         "",
         "| Check | Result | Leads |",
         "|---|---|---|",
-        f"| Truncated (no sentence-ending punctuation) | {_verdict(truncated)} | "
-        f"{_lead_list(truncated)} |",
+        f"| Truncated (API `stop_reason`, or no sentence-ending punctuation) | "
+        f"{_verdict(truncated)} | {_lead_list(truncated)} |",
         f"| Signature / sign-off (rule 2a) | {_verdict(signed)} | {_lead_list(signed)} |",
+        f"| Over hard word limit (LOGIC §7: >130) | {_verdict(over_hard)} | "
+        f"{_lead_list(over_hard)} |",
         f"| Denial wording — needs human look (rule 5) | {_verdict(denials)} | "
         f"{_lead_list(denials)} |",
+        f"| Outside 60–120 target but tolerated (121–130) | {_note(over_target)} | "
+        f"{_lead_list(over_target)} |",
         "",
         "> Stakeholder: read every response below against LOGIC.md §7 (must / never lists).",
         "> Health-flagged ones additionally must contain zero admission language.",
@@ -161,7 +210,7 @@ def write_review_file(
         "",
     ]
 
-    for i, (target, response) in enumerate(records, start=1):
+    for i, (target, response, _stop_reason) in enumerate(records, start=1):
         lead = target.context
         rating = lead.rating if lead.rating is not None else "?"
         flag = lead.notes if lead.is_health_flagged else "—"
@@ -176,6 +225,7 @@ def write_review_file(
             f"- **Address:** {lead.address or '(none)'}",
             f"- **Review date:** {review_date}",
             f"- **Health flag:** {flag}",
+            f"- **Words:** {lead_checks.word_count}",
             f"- **Checks:** {'⚠️ ' + ', '.join(notices) if notices else 'clean'}",
             "",
             "**Review:**",
@@ -198,6 +248,11 @@ def _verdict(offenders: list[int]) -> str:
     return "✅ pass" if not offenders else f"⚠️ {len(offenders)}"
 
 
+def _note(leads: list[int]) -> str:
+    """For informational rows, where a non-zero count is not a failure."""
+    return "none" if not leads else f"{len(leads)} (accepted)"
+
+
 def _lead_list(offenders: list[int]) -> str:
     return "—" if not offenders else ", ".join(str(lid) for lid in offenders)
 
@@ -211,15 +266,17 @@ def run(
     take_all: bool,
     yes: bool,
     regenerate: bool = False,
+    lead_ids: list[int] | None = None,
     on_progress=lambda msg: None,
 ) -> dict:
     """Core generation logic. Always returns a result dict; check result["capped"] for the
     cap-exceeded case and result["ran"] to tell a dry run apart from real API calls."""
     with SessionLocal() as session:
-        candidates = load_candidates(session, regenerate=regenerate)
+        candidates = load_candidates(session, regenerate=regenerate, lead_ids=lead_ids)
         skipped_already_generated = 0 if regenerate else count_already_generated(session)
 
-    if take_all:
+    if take_all or lead_ids:
+        # An explicit lead list is already the exact selection the caller asked for.
         targets = candidates
     elif regenerate:
         # The set is already fixed (it's the batch under review), so no quota rebalancing —
@@ -239,9 +296,11 @@ def run(
         "ran": False,
         "generated": 0,
         "failures": 0,
+        "batch_size": 0,
         "truncated": 0,
         "signatures": 0,
         "denials": 0,
+        "over_hard_word_limit": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "actual_cost_usd": 0.0,
@@ -274,12 +333,11 @@ def run(
         return result
 
     client = ClaudeClient()
-    records: list[tuple[GenerationTarget, str]] = []
 
     for i, target in enumerate(targets, start=1):
         label = f"[{i}/{len(targets)}] {target.context.name or target.lead_id}"
         try:
-            response = client.generate_response(target.context)
+            generated = client.generate_response(target.context)
         except Exception as exc:
             result["failures"] += 1
             on_progress(f"{label} — FAILED: {exc}")
@@ -290,23 +348,38 @@ def run(
             session.execute(
                 update(Lead)
                 .where(Lead.lead_id == target.lead_id)
-                .values(generated_response=response, status=GENERATED_STATUS)
+                .values(
+                    generated_response=generated.text,
+                    generation_stop_reason=generated.stop_reason,
+                    status=GENERATED_STATUS,
+                )
             )
             session.commit()
 
-        records.append((target, response))
         result["generated"] += 1
+        checks = check_response(generated.text, generated.stop_reason)
         flag_note = " [health-flagged]" if target.context.is_health_flagged else ""
-        on_progress(f"{label} — ok ({len(response.split())} words){flag_note}")
+        problems = f" ⚠️ {', '.join(checks.failures)}" if checks.failures else ""
+        on_progress(
+            f"{label} — ok ({checks.word_count} words, stop_reason="
+            f"{generated.stop_reason}){flag_note}{problems}"
+        )
+
+    # Rebuilt from the DB, not from this run's records: regenerating a subset must refresh the
+    # existing review file rather than replace it with a file containing only those leads.
+    with SessionLocal() as session:
+        batch = load_generated_batch(session)
 
     run_date = datetime.now(UTC).date().isoformat()
-    review_path = write_review_file(records, run_date)
+    review_path = write_review_file(batch, run_date)
 
-    batch_checks = [check_response(response) for _, response in records]
+    batch_checks = [check_response(text, stop) for _, text, stop in batch]
     result.update(
+        batch_size=len(batch),
         truncated=sum(1 for c in batch_checks if c.truncated),
         signatures=sum(1 for c in batch_checks if c.has_signature),
         denials=sum(1 for c in batch_checks if c.has_denial),
+        over_hard_word_limit=sum(1 for c in batch_checks if c.over_hard_word_limit),
     )
     result.update(
         ran=True,
@@ -319,7 +392,9 @@ def run(
     on_progress(f"Generated: {result['generated']}")
     on_progress(f"Failures: {result['failures']}")
     on_progress(
-        f"Checks — truncated: {result['truncated']}, signatures: {result['signatures']}, "
+        f"Checks over the whole {result['batch_size']}-response batch — "
+        f"truncated: {result['truncated']}, signatures: {result['signatures']}, "
+        f">130 words: {result['over_hard_word_limit']}, "
         f"denial wording (needs human look): {result['denials']}"
     )
     on_progress(f"Token usage: {client.input_tokens} in / {client.output_tokens} out")
@@ -335,6 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         take_all=args.all,
         yes=args.yes,
         regenerate=args.regenerate,
+        lead_ids=args.lead_ids,
         on_progress=print,
     )
     return 1 if result["capped"] else 0

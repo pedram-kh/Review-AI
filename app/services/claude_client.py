@@ -5,6 +5,8 @@ other module should call the anthropic SDK directly. Jobs (Sprint 2 tickets 2.2/
 this client; they never construct their own anthropic.Anthropic.
 """
 
+from dataclasses import dataclass
+
 from anthropic import Anthropic
 
 from app.config import settings
@@ -15,6 +17,22 @@ MODEL = "claude-sonnet-5"
 # Raised from 350 in prompt v1.2: Polish tokenizes into more tokens than English, and long
 # responses were being truncated mid-word at 350 (found in the v1.1 batch, leads 21 and 22).
 MAX_TOKENS = 500
+
+# The SDK's stop_reason when generation was cut off by max_tokens rather than finishing.
+STOP_REASON_MAX_TOKENS = "max_tokens"
+
+
+@dataclass(frozen=True)
+class GeneratedResponse:
+    """The response text plus why the model stopped. `stop_reason` is what makes truncation
+    detectable exactly instead of guessed from punctuation (app/response_checks.py)."""
+
+    text: str
+    stop_reason: str | None
+
+    @property
+    def hit_token_ceiling(self) -> bool:
+        return self.stop_reason == STOP_REASON_MAX_TOKENS
 
 
 class ClaudeClient:
@@ -28,7 +46,7 @@ class ClaudeClient:
         self.input_tokens = 0
         self.output_tokens = 0
 
-    def generate_response(self, lead: LeadContext) -> str:
+    def generate_response(self, lead: LeadContext) -> GeneratedResponse:
         """Generate one owner response for `lead`. LOGIC.md §7: exactly one call per lead —
         the self-check/revision happens inside that same call, so the model returns only the
         final text. Enforces the per-run call cap before touching the API."""
@@ -48,4 +66,5 @@ class ClaudeClient:
         self.input_tokens += message.usage.input_tokens
         self.output_tokens += message.usage.output_tokens
 
-        return "".join(block.text for block in message.content if block.type == "text").strip()
+        text = "".join(block.text for block in message.content if block.type == "text").strip()
+        return GeneratedResponse(text=text, stop_reason=message.stop_reason)

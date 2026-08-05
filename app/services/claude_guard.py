@@ -53,6 +53,14 @@ def estimate_cost(n_leads: int) -> ClaudeCostEstimate:
     )
 
 
+def cost_for_tokens(input_tokens: int, output_tokens: int) -> float:
+    """Dollar cost of token counts actually reported by the SDK — lets jobs report real spend
+    instead of only the per-call assumptions baked into estimate_cost()."""
+    return (input_tokens / TOKENS_PER_MTOK) * PRICE_PER_MTOK_INPUT_USD + (
+        output_tokens / TOKENS_PER_MTOK
+    ) * PRICE_PER_MTOK_OUTPUT_USD
+
+
 def enforce_call_cap(n_calls: int) -> ClaudeCostEstimate:
     """Raises ClaudeCallCapExceeded (before any API call) if the run would breach the
     LOGIC.md §4 cap. Otherwise returns the cost estimate for the requested run."""

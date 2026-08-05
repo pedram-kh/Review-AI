@@ -7,6 +7,7 @@ from app.prompts import (
     UNKNOWN_DATE,
     UNKNOWN_RATING,
     LeadContext,
+    normalize_review_text,
     render,
 )
 
@@ -72,6 +73,24 @@ def test_render_does_not_leak_none_for_missing_values() -> None:
     assert "None" not in prompt
     assert f'ocena="{UNKNOWN_RATING}/5"' in prompt
     assert f'data="{UNKNOWN_DATE}"' in prompt
+
+
+def test_normalize_review_text_cleans_br_tags_and_whitespace_runs() -> None:
+    raw = (
+        "  Pierwsza część.<br><br>Druga część.<BR/>Trzecia.<br />Czwarta."
+        "\n\n\n\nPiąta.   Szósta.  "
+    )
+
+    assert normalize_review_text(raw) == (
+        "Pierwsza część.\n\nDruga część.\nTrzecia.\nCzwarta.\n\nPiąta.  Szósta."
+    )
+
+
+def test_render_normalizes_the_review_text_it_embeds() -> None:
+    prompt = render(_lead(review_text="Czekaliśmy 40 minut.<br><br>Kelner był opryskliwy."))
+
+    assert "<br>" not in prompt
+    assert "Czekaliśmy 40 minut.\n\nKelner był opryskliwy." in prompt
 
 
 def test_is_health_flagged_reads_the_notes_marker() -> None:

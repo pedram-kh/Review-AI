@@ -5,6 +5,7 @@ Per SPRINT_02.md rule 3, prompt changes are approved by the PM in chat and then 
 both places in the same commit; tests/test_prompts.py asserts the two texts are identical.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -35,6 +36,21 @@ HEALTH_FLAG_SUFFIX = "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zer
 UNKNOWN_DATE = "nieznana"
 UNKNOWN_RATING = "?"
 
+# Outscraper returns review text with literal <br> tags as line breaks (seen live in ticket
+# 2.1's render check). Normalize them so the tuning batch judges prompt quality on clean input.
+_BR_TAG = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
+_THREE_PLUS_NEWLINES = re.compile(r"\n{3,}")
+_HORIZONTAL_RUNS = re.compile(r"[^\S\n]{3,}")
+
+
+def normalize_review_text(text: str) -> str:
+    """<br> variants become newlines, runs of 3+ blank lines/spaces collapse to at most 2,
+    and surrounding whitespace is stripped."""
+    text = _BR_TAG.sub("\n", text)
+    text = _THREE_PLUS_NEWLINES.sub("\n\n", text)
+    text = _HORIZONTAL_RUNS.sub("  ", text)
+    return text.strip()
+
 
 @dataclass(frozen=True)
 class LeadContext:
@@ -61,7 +77,7 @@ def render(lead: LeadContext) -> str:
         address=lead.address or "",
         rating=lead.rating if lead.rating is not None else UNKNOWN_RATING,
         review_date=lead.review_date.date().isoformat() if lead.review_date else UNKNOWN_DATE,
-        review_text=lead.review_text or "",
+        review_text=normalize_review_text(lead.review_text or ""),
     )
     if lead.is_health_flagged:
         prompt = f"{prompt}\n\n{HEALTH_FLAG_SUFFIX}"

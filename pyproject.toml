@@ -38,5 +38,10 @@ extend-exclude = ["alembic/versions"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# The prompt text must stay character-for-character identical to docs/sprints/SPRINT_02.md
+# §Prompt v1 (enforced by tests/test_prompts.py), so its long lines can't be rewrapped.
+"app/prompts.py" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

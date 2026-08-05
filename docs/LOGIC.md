@@ -71,14 +71,35 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 - Health-flagged leads: only after Stakeholder review.
 - Channel priority: Facebook Page → email → contact form. (WhatsApp: post-launch, BACKLOG.)
 
-## 7. Response generation rules (summary — finalized in Sprint 2 planning)
+## 7. Response generation rules (v1.3 — FINAL for MVP)
 
-- Language: match the review's language (PL default, EN if review is EN)
-- Register: formal-warm Polish ("Państwo"), 60–120 words
-- Must address the specific complaint; never generic
-- Never: admit legal liability, argue with the reviewer, invent facts/compensation ("fired the chef", "free dinner")
-- Always: brief apology-acknowledgment, one concrete quality commitment, invitation to continue offline
-- Health-flagged reviews: generated for internal draft but marked for human edit before any use
+**Model & flow:** claude-sonnet-5, ONE call per lead: generate → self-check against the checklist below → revise → output final only. Max 500 Claude calls per run (§4).
+
+**The response must:**
+- Match the review's language (PL default; EN if review is EN). PL register: formal-warm, "Państwo"
+- Be 60–120 words, no emojis, no marketing language
+- Address the reviewer's SPECIFIC complaint(s) in the first two sentences — never generic
+- Contain: brief acknowledgment/apology → one concrete, honest quality commitment → invitation to continue offline (phone/email if known, otherwise "prosimy o kontakt")
+- Sound like a busy owner who cares, not a PR department
+
+**The response must NEVER:**
+- Admit legal liability or confirm the complaint's facts as true ("przepraszamy, że jedzenie było zepsute" ❌ → "przykro nam, że wizyta nie spełniła oczekiwań" ✅)
+- Argue, correct, or blame the reviewer
+- Invent facts, staff actions, or compensation ("zwolniliśmy kucharza", "zapraszamy na darmową kolację" ❌)
+- Mention AI, ReviewPilot, or how the response was written
+
+**Self-check (same call):** verify every must/never above; if any fails, revise before outputting. Output format: final response text only, no commentary.
+
+**Health-flagged reviews (§2):** response IS generated (internal draft) but lead keeps HEALTH_FLAG — Stakeholder edits before any use; extra rule: zero admission language, maximally neutral, offline-first.
+
+## 7b. Outreach message rules (v1 — template lives in SPRINT_02 ticket 2.4, Stakeholder-approved)
+
+- Polish, "Państwo" register, 90–140 words, plain text (no links except one CTA at the end in v1... CTA = reply/email, since no landing page until Sprint 4)
+- Value-first structure: (1) we noticed the specific unanswered review, (2) here is a ready-to-use professional response — free, (3) soft mention that we do this automatically 24/7, (4) single low-pressure CTA
+- Includes the generated response verbatim as the centerpiece
+- Never: pressure tactics, fake urgency, "your reputation is being destroyed" fear-mongering
+- Sender identity: Pedram, real name, real reply address (deliverability + PKE/GDPR posture)
+- Health-flagged leads: never auto-assembled into outreach (§2, §6)
 
 ## 8. Sweep scope (current)
 
@@ -92,6 +113,7 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-05 | §7 finalized v1.3 (generation must/never lists, one-call self-check flow, health-flag handling) + §7b outreach message rules added. Sprint 2 planning decisions: tune-on-40-first, Outscraper contacts enrichment, template drafted for approval | Stakeholder + PM |
 | 2026-08-05 | §2 v1.2: `zatru` stem gets negative lookahead `zatru(?!dni)` — second live false positive ('zatrudnieniu'/hiring, ticket 1.5 milestone run). Genuine flags (cockroach, mold) unaffected | Stakeholder + PM |
 | 2026-08-05 | §2 keyword matching v1.1: split into whole-word tier (short standalone words, fixes 'rat'-in-'akurat' false positive found in ticket 1.4 live run) + substring tier (stems/phrases keep inflection coverage). Also broadened stems: zatrucie→zatru, salmonella→salmonell; added plurals robaki/myszy/szczury/rats/mice | Stakeholder + PM |
 | 2026-08-05 | v1 created: qualification Q1–Q6, health keywords, lifecycle, cost caps, polling=manual, outreach constraints, generation summary, Śródmieście pilot scope | Stakeholder + PM |

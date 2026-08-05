@@ -67,6 +67,7 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-05 | Sprint 2 scope | Tune generation on 30–50 leads before full run; enrichment via Outscraper Emails & Contacts (~$3/1k, no own scraper); PL outreach template drafted in-sprint for Stakeholder approval | Generate-all-immediately (one bad template × 213 = 213 bad first impressions); own website scraper (dev time better spent on prompt quality) |
 | 2026-08-05 | Sprint 1 scope | Śródmieście pilot (~$25) before full central sweep; 10 reviews/place; manual trigger + cost caps + --yes flag; thresholds per LOGIC.md v1 | Full $70 sweep first (tune filters cheap first); auto-scheduling now (sending capacity is the bottleneck, not lead supply) |
 | 2026-08-05 | RDS networking (interim) | Public 5432 open, hardened (force_ssl, 32-char random pw, auto minor upgrades). **HARD GATE: flip to private VPC + NAT (~$37/mo) at Sprint 4 start, before first customer row.** Secrets Manager + App Runner instance role also deferred to same Sprint 4 hardening batch. | VPC connector + NAT now ($32–40/mo protecting only public scraped data pre-revenue); defer deploy (milestone requires live URL) |
 | 2026-08-05 | Deploy method | App Runner GitHub connection (auto-deploy on push to main, apprunner.yaml) | ECR + Docker image (Docker Desktop unavailable; no reproducibility need yet — revisit if builds misbehave) |

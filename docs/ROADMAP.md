@@ -67,6 +67,8 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-05 | RDS networking (interim) | Public 5432 open, hardened (force_ssl, 32-char random pw, auto minor upgrades). **HARD GATE: flip to private VPC + NAT (~$37/mo) at Sprint 4 start, before first customer row.** Secrets Manager + App Runner instance role also deferred to same Sprint 4 hardening batch. | VPC connector + NAT now ($32–40/mo protecting only public scraped data pre-revenue); defer deploy (milestone requires live URL) |
+| 2026-08-05 | Deploy method | App Runner GitHub connection (auto-deploy on push to main, apprunner.yaml) | ECR + Docker image (Docker Desktop unavailable; no reproducibility need yet — revisit if builds misbehave) |
 | 2026-08-04 | AWS region | eu-west-1 (Ireland) | Stockholm (no App Runner), Frankfurt (~5–9% pricier; its latency edge to PL irrelevant for background jobs + email alerts) |
 | 2026-07-29 | Frontend hosting | Netlify free tier | Amplify (no need to burn credits on static hosting), Vercel (Netlify preferred by Stakeholder; marketing site ships as static export to avoid Next-runtime edge cases) |
 | 2026-07-29 | Frontend split | 2 repos: marketing + app(with /admin role-gated) | Single app (couples marketing to product), 3 apps (maintenance cost > security benefit at this stage; extract /admin later if needed) |

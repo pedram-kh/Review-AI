@@ -7,6 +7,7 @@
 
 | Idea | Origin | Earliest slot |
 |---|---|---|
+| **Sprint 4 hardening batch (COMMITTED, not optional):** RDS → private subnets + VPC connector + NAT; remove 0.0.0.0/0 rule; move secrets to Secrets Manager + App Runner instance role | Ticket 0.5 networking decision (2026-08-05) | **Sprint 4 start — hard gate before first customer data** |
 | Auto-post responses via Google Business Profile API ("Approve & post" in email) | Product plan | After G4 (10 paying customers) |
 | WhatsApp delivery of alerts | Product plan | Post-launch |
 | Hotels niche | Brief | After restaurant validation |

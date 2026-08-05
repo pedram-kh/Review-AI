@@ -1,11 +1,9 @@
 version: 1.0
 runtime: python311
-build:
-  commands:
-    build:
-      - pip3 install --no-cache-dir .
 run:
   runtime-version: 3.11.15
+  pre-run:
+    - pip3 install --no-cache-dir .
   command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
   network:
     port: 8000

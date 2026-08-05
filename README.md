@@ -41,9 +41,25 @@ instead, with the equivalent `Runtime`/`BuildCommand`/`StartCommand`/`Port` pass
 `create-service` call, plus `RuntimeEnvironmentVariables` for the secrets. `apprunner.yaml` is kept
 for a future switch (e.g. once secrets come from Secrets Manager references instead of literals).
 
-**Known gotcha:** do not commit a `.python-version` file — App Runner's Python 3.11 "revised
-build" process fails with a generic `Failed to execute 'pre_build' command` error if one is
-present in the repo root (a known AWS bug, not project-specific). Use `python3.11` locally instead.
+**Known gotchas with App Runner's Python 3.11 "revised build"** (all hit and fixed during ticket
+0.5 — see `docs/PROGRESS.md` for the live deploy log):
+
+- Do not commit a `.python-version` file — the build fails with a generic
+  `Failed to execute 'pre_build' command` error if one is present in the repo root (a known AWS
+  bug, not project-specific). Use `python3.11` locally instead (no file needed).
+- Use `pip3`/`python3`, not `pip`/`python` — the build image doesn't alias them.
+- The revised build only preserves files installed **inside `/app`**. A plain
+  `pip3 install .` installs to system site-packages *outside* `/app`, so it's silently dropped
+  before the run stage and the app fails with `uvicorn: executable file not found in $PATH`. When
+  using `ConfigurationSource: API` (no `apprunner.yaml`, our case — see below), the fix is to
+  target the install inside `/app` and point Python at it:
+  `BuildCommand: pip3 install --no-cache-dir --target=/app/deps .`,
+  `RuntimeEnvironmentVariables: {"PYTHONPATH": "/app/deps", ...}`,
+  `StartCommand: python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`.
+  If you switch to `apprunner.yaml`/`ConfigurationSource: REPOSITORY` instead, AWS's own fix is
+  simpler: move the `pip3 install .` into the `run.pre-run` section (which runs in the final image,
+  where normal installs work) instead of `build.commands.build` — see the committed
+  `apprunner.yaml` for the working version of this pattern (currently unused, see below).
 
 Two ways to deploy:
 

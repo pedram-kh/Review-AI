@@ -122,34 +122,46 @@ def upsert_reviews(session: Session, raw_places: list[dict]) -> tuple[int, int, 
     return inserted, updated, polled_place_ids
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+def run(poll_all: bool, yes: bool) -> dict:
+    """Core review-fetch logic, reusable by both the CLI (main) and run_pipeline.py.
 
+    Always returns a result dict; check result["capped"] for the cap-exceeded case and
+    result["ran"] to tell a dry run / nothing-to-poll apart from an actual API call.
+    """
     with SessionLocal() as session:
-        target_place_ids = select_target_place_ids(session, poll_all=args.all)
+        target_place_ids = select_target_place_ids(session, poll_all=poll_all)
 
-    scope = "all places" if args.all else "places with last_polled_at IS NULL"
-    print(f"Target scope: {scope}")
-    print(f"Selected places: {len(target_place_ids)}")
+    result: dict = {
+        "scope": "all places" if poll_all else "places with last_polled_at IS NULL",
+        "selected": len(target_place_ids),
+        "capped": False,
+        "cap_error": None,
+        "n_review_records": 0,
+        "estimated_cost_usd": 0.0,
+        "ran": False,
+        "places_polled": 0,
+        "inserted": 0,
+        "updated": 0,
+        "actual_cost_usd": 0.0,
+    }
 
     if not target_place_ids:
-        print("Nothing to poll.")
-        return 0
+        return result
 
     n_review_records = len(target_place_ids) * DEFAULT_REVIEWS_PER_PLACE
+    result["n_review_records"] = n_review_records
 
     try:
         estimate = enforce_caps(n_places=0, n_review_records=n_review_records)
     except CostCapExceeded as exc:
-        print(f"Cost cap exceeded: {exc}")
-        return 1
+        result["capped"] = True
+        result["cap_error"] = str(exc)
+        return result
 
-    print(f"Reviews requested: {n_review_records} ({DEFAULT_REVIEWS_PER_PLACE} per place)")
-    print(f"Estimated cost: ${estimate.total_usd:.2f}")
+    result["estimated_cost_usd"] = estimate.total_usd
 
-    if not args.yes:
-        print("Dry run (no --yes passed) — no API call made, nothing spent.")
-        return 0
+    if not yes:
+        return result
 
     client = OutscraperClient()
     raw_places: list[dict] = []
@@ -169,10 +181,43 @@ def main(argv: list[str] | None = None) -> int:
         session.commit()
 
     actual_estimate = estimate_cost(n_places=0, n_review_records=n_review_records)
-    print(f"Places polled: {len(polled_place_ids)}")
-    print(f"Reviews inserted: {inserted}")
-    print(f"Reviews updated: {updated}")
-    print(f"Actual cost estimate: ${actual_estimate.total_usd:.2f}")
+    result.update(
+        ran=True,
+        places_polled=len(polled_place_ids),
+        inserted=inserted,
+        updated=updated,
+        actual_cost_usd=actual_estimate.total_usd,
+    )
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    result = run(poll_all=args.all, yes=args.yes)
+
+    print(f"Target scope: {result['scope']}")
+    print(f"Selected places: {result['selected']}")
+
+    if result["selected"] == 0:
+        print("Nothing to poll.")
+        return 0
+
+    if result["capped"]:
+        print(f"Cost cap exceeded: {result['cap_error']}")
+        return 1
+
+    n_records = result["n_review_records"]
+    print(f"Reviews requested: {n_records} ({DEFAULT_REVIEWS_PER_PLACE} per place)")
+    print(f"Estimated cost: ${result['estimated_cost_usd']:.2f}")
+
+    if not result["ran"]:
+        print("Dry run (no --yes passed) — no API call made, nothing spent.")
+        return 0
+
+    print(f"Places polled: {result['places_polled']}")
+    print(f"Reviews inserted: {result['inserted']}")
+    print(f"Reviews updated: {result['updated']}")
+    print(f"Actual cost estimate: ${result['actual_cost_usd']:.2f}")
     return 0
 
 

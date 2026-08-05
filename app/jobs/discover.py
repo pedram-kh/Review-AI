@@ -76,37 +76,78 @@ def upsert_places(session: Session, raw_places: list[dict], city: str) -> tuple[
     return inserted, updated
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    query = DISTRICT_QUERIES[args.district]
+def run(district: str, limit: int, yes: bool) -> dict:
+    """Core discovery logic, reusable by both the CLI (main) and run_pipeline.py.
 
-    print(f"District: {args.district} ({query})")
-    print(f"Requested limit: {args.limit} places")
+    Always returns a result dict; check result["capped"] for the cap-exceeded case and
+    result["ran"] to tell a dry run apart from an actual API call.
+    """
+    query = DISTRICT_QUERIES[district]
+    result: dict = {
+        "district": district,
+        "query": query,
+        "limit": limit,
+        "capped": False,
+        "cap_error": None,
+        "estimated_cost_usd": 0.0,
+        "ran": False,
+        "found": 0,
+        "inserted": 0,
+        "updated": 0,
+        "actual_cost_usd": 0.0,
+    }
 
     try:
-        preflight = enforce_caps(n_places=args.limit, n_review_records=0)
+        preflight = enforce_caps(n_places=limit, n_review_records=0)
     except CostCapExceeded as exc:
-        print(f"Cost cap exceeded: {exc}")
-        return 1
+        result["capped"] = True
+        result["cap_error"] = str(exc)
+        return result
 
-    print(f"Estimated cost: ${preflight.total_usd:.2f}")
+    result["estimated_cost_usd"] = preflight.total_usd
 
-    if not args.yes:
-        print("Dry run (no --yes passed) — no API call made, nothing spent.")
-        return 0
+    if not yes:
+        return result
 
     client = OutscraperClient()
-    raw_places = client.search_places(query, limit=args.limit)
+    raw_places = client.search_places(query, limit=limit)
 
     with SessionLocal() as session:
         inserted, updated = upsert_places(session, raw_places, city=CITY)
         session.commit()
 
     actual = estimate_cost(n_places=len(raw_places), n_review_records=0)
-    print(f"Found: {len(raw_places)}")
-    print(f"Inserted: {inserted}")
-    print(f"Updated: {updated}")
-    print(f"Actual cost estimate: ${actual.total_usd:.2f}")
+    result.update(
+        ran=True,
+        found=len(raw_places),
+        inserted=inserted,
+        updated=updated,
+        actual_cost_usd=actual.total_usd,
+    )
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    result = run(args.district, args.limit, args.yes)
+
+    print(f"District: {result['district']} ({result['query']})")
+    print(f"Requested limit: {result['limit']} places")
+
+    if result["capped"]:
+        print(f"Cost cap exceeded: {result['cap_error']}")
+        return 1
+
+    print(f"Estimated cost: ${result['estimated_cost_usd']:.2f}")
+
+    if not result["ran"]:
+        print("Dry run (no --yes passed) — no API call made, nothing spent.")
+        return 0
+
+    print(f"Found: {result['found']}")
+    print(f"Inserted: {result['inserted']}")
+    print(f"Updated: {result['updated']}")
+    print(f"Actual cost estimate: ${result['actual_cost_usd']:.2f}")
     return 0
 
 

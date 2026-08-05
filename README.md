@@ -7,6 +7,32 @@
 4. `uvicorn app.main:app --reload` then check `GET http://localhost:8000/health`
 5. `pytest` to run tests, `ruff check .` to lint
 
+## Pipeline (Sprint 1 — Śródmieście pilot sweep)
+
+Data pipeline jobs live in `app/jobs/`, all runnable with `python -m app.jobs.<name>`. Every
+Outscraper-spending step requires an explicit `--yes` flag (LOGIC.md §4); without it, jobs print a
+cost estimate and exit without calling the API or touching the DB via the API.
+
+- `discover` — Outscraper Maps search for restaurants in a district, upserts into `places`.
+  `python -m app.jobs.discover --district srodmiescie --limit 1000 --yes`
+- `fetch_reviews` — pulls the 10 newest reviews for every un-polled place (or `--all` to re-poll
+  everything), upserts into `reviews`, stamps `places.last_polled_at`.
+  `python -m app.jobs.fetch_reviews --yes`
+- `qualify` — scans `reviews`, creates `leads` per LOGIC.md §1 Q1-Q6 + §2 health flag. No API
+  calls, no cost. `python -m app.jobs.qualify`
+- `run_pipeline` — orchestrates all three sequentially and prints a single final report (places,
+  reviews, leads, health-flagged, cost per step + total, wall time). This is the one command for
+  the pilot sweep:
+
+  ```bash
+  python -m app.jobs.run_pipeline --district srodmiescie          # estimate only, no spend
+  python -m app.jobs.run_pipeline --district srodmiescie --yes    # run the full sweep
+  ```
+
+  All three steps are individually idempotent (place/review upserts key on their natural IDs,
+  leads use `ON CONFLICT (place_id) DO NOTHING`), so re-running the pipeline — or any single job
+  on its own — is always safe and won't create duplicates.
+
 ## Database migrations (Alembic)
 
 - Apply all migrations: `alembic upgrade head`

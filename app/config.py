@@ -31,3 +31,9 @@ def _load_settings() -> Settings:
 
 
 settings = _load_settings()
+
+# Outscraper Maps search query per district (LOGIC.md §8 sweep scope). Extend this dict
+# to open new districts — no other code changes needed.
+DISTRICT_QUERIES: dict[str, str] = {
+    "srodmiescie": "restaurants, Śródmieście, Warszawa, Polska",
+}

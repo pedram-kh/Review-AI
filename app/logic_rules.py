@@ -3,6 +3,8 @@
 MUST match docs/LOGIC.md — change only together, with a dated changelog entry there.
 """
 
+import re
+
 # Q1 — star rating cap (LOGIC.md §1)
 MAX_RATING_FOR_LEAD = 3
 
@@ -38,19 +40,23 @@ HEALTH_KEYWORDS_WHOLE_WORD = (
     "poisoned",
 )
 
-# Tier 2 — substring match. Stems/phrases where we deliberately want to catch inflections
-# (e.g. "zatru" catches zatrucie/zatrułem/zatrułam/zatruta...).
+# Tier 2 — substring match (label, regex pattern). Stems/phrases where we deliberately want
+# to catch inflections (e.g. "zatru" catches zatrucie/zatrułem/zatrułam/zatruta...).
+#
+# LOGIC.md v1.2: "zatru" gets a negative lookahead excluding "zatru" + "dni" — a second live
+# false positive found in ticket 1.5's milestone run ("zatrudnieniu"/"zatrudnić", the unrelated
+# Polish employment/hiring word family). Genuine hits (zatrucie, zatrułem, zatrułam) are unaffected.
 HEALTH_KEYWORDS_SUBSTRING = (
-    "zatru",
-    "salmonell",
-    "sanepid",
-    "włos w",
-    "niedogotowan",
-    "surowe mięso",
-    "brudn",
-    "food poisoning",
-    "sick after",
-    "cockroach",
-    "hair in",
-    "raw chicken",
+    ("zatru", r"zatru(?!dni)"),
+    ("salmonell", re.escape("salmonell")),
+    ("sanepid", re.escape("sanepid")),
+    ("włos w", re.escape("włos w")),
+    ("niedogotowan", re.escape("niedogotowan")),
+    ("surowe mięso", re.escape("surowe mięso")),
+    ("brudn", re.escape("brudn")),
+    ("food poisoning", re.escape("food poisoning")),
+    ("sick after", re.escape("sick after")),
+    ("cockroach", re.escape("cockroach")),
+    ("hair in", re.escape("hair in")),
+    ("raw chicken", re.escape("raw chicken")),
 )

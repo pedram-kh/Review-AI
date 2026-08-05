@@ -64,17 +64,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # 1. discover
-    discover_result = discover.run(district=args.district, limit=args.limit, yes=True)
+    print("\n--- discover ---")
+    discover_result = discover.run(
+        district=args.district, limit=args.limit, yes=True, on_progress=print
+    )
     if discover_result["capped"]:
         print(f"discover: cost cap exceeded: {discover_result['cap_error']}")
         return 1
 
     # 2. fetch_reviews (global scope by design — no district column on places; picks up any
     # unpolled place, including the ones discover.run() just inserted/updated)
-    fetch_result = fetch_reviews.run(poll_all=False, yes=True)
+    print("\n--- fetch_reviews ---")
+    fetch_result = fetch_reviews.run(poll_all=False, yes=True, on_progress=print)
     if fetch_result["capped"]:
         print(f"fetch_reviews: cost cap exceeded: {fetch_result['cap_error']}")
         return 1
+
+    print("\n--- qualify ---")
 
     # 3. qualify (no API calls, no cost)
     with SessionLocal() as session:

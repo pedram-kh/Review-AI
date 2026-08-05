@@ -61,14 +61,13 @@ def _passes_q5_language(review: Review) -> bool:
 
 
 def _detect_health_keyword(text: str) -> str | None:
-    match = _WHOLE_WORD_PATTERN.search(text)
-    if match:
-        return match.group(1).lower()
+    whole_word_match = _WHOLE_WORD_PATTERN.search(text)
+    if whole_word_match:
+        return whole_word_match.group(1).lower()
 
-    lowered = text.lower()
-    for keyword in HEALTH_KEYWORDS_SUBSTRING:
-        if keyword in lowered:
-            return keyword
+    for label, pattern in HEALTH_KEYWORDS_SUBSTRING:
+        if re.search(pattern, text, re.IGNORECASE):
+            return label
     return None
 
 

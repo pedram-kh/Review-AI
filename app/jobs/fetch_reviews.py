@@ -23,8 +23,13 @@ from app.models import Place, Review
 from app.services.cost_guard import CostCapExceeded, enforce_caps, estimate_cost
 from app.services.outscraper_client import DEFAULT_REVIEWS_PER_PLACE, OutscraperClient
 
-# Outscraper accepts at most 250 queries (place_ids) per google_maps_reviews request per their docs.
-BATCH_SIZE = 250
+# Outscraper's docs say up to 250 queries (place_ids) per google_maps_reviews request, but that's
+# a logical API limit — the SDK serializes the whole place_id list into the GET request's query
+# string, and a batch of 250 real place_ids (~27 chars each) is long enough to trip an HTTP 414
+# "URI Too Long" at the gateway/load-balancer level (hit live during ticket 1.5's second milestone
+# run, 492 places to poll). 100 keeps the URL comfortably under typical gateway limits (~2,700
+# chars of place_ids alone) while still batching for fewer network round trips than one-at-a-time.
+BATCH_SIZE = 100
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -122,8 +127,13 @@ def upsert_reviews(session: Session, raw_places: list[dict]) -> tuple[int, int, 
     return inserted, updated, polled_place_ids
 
 
-def run(poll_all: bool, yes: bool) -> dict:
+def run(poll_all: bool, yes: bool, on_progress=lambda msg: None) -> dict:
     """Core review-fetch logic, reusable by both the CLI (main) and run_pipeline.py.
+
+    `on_progress(str)` is called with a human-readable line before/after each batch — a batched
+    --yes run can take several minutes (Outscraper falls back to async polling for batches over
+    10 place_ids), so both the CLI and the pipeline runner want live progress, not just a summary
+    printed after everything finishes.
 
     Always returns a result dict; check result["capped"] for the cap-exceeded case and
     result["ran"] to tell a dry run / nothing-to-poll apart from an actual API call.
@@ -131,8 +141,12 @@ def run(poll_all: bool, yes: bool) -> dict:
     with SessionLocal() as session:
         target_place_ids = select_target_place_ids(session, poll_all=poll_all)
 
+    scope = "all places" if poll_all else "places with last_polled_at IS NULL"
+    on_progress(f"Target scope: {scope}")
+    on_progress(f"Selected places: {len(target_place_ids)}")
+
     result: dict = {
-        "scope": "all places" if poll_all else "places with last_polled_at IS NULL",
+        "scope": scope,
         "selected": len(target_place_ids),
         "capped": False,
         "cap_error": None,
@@ -146,6 +160,7 @@ def run(poll_all: bool, yes: bool) -> dict:
     }
 
     if not target_place_ids:
+        on_progress("Nothing to poll.")
         return result
 
     n_review_records = len(target_place_ids) * DEFAULT_REVIEWS_PER_PLACE
@@ -156,69 +171,68 @@ def run(poll_all: bool, yes: bool) -> dict:
     except CostCapExceeded as exc:
         result["capped"] = True
         result["cap_error"] = str(exc)
+        on_progress(f"Cost cap exceeded: {exc}")
         return result
 
     result["estimated_cost_usd"] = estimate.total_usd
+    on_progress(f"Reviews requested: {n_review_records} ({DEFAULT_REVIEWS_PER_PLACE} per place)")
+    on_progress(f"Estimated cost: ${estimate.total_usd:.2f}")
 
     if not yes:
+        on_progress("Dry run (no --yes passed) — no API call made, nothing spent.")
         return result
 
+    # Each batch is fetched AND committed before moving to the next one, rather than
+    # accumulating everything in memory and writing once at the end — if a later batch fails
+    # (e.g. an API/network error), progress and spend from earlier batches is not lost, and a
+    # re-run only needs to cover the places still left with last_polled_at IS NULL.
     client = OutscraperClient()
-    raw_places: list[dict] = []
-    for batch in _chunked(target_place_ids, BATCH_SIZE):
-        raw_places.extend(
-            client.fetch_reviews(batch, reviews_per_place=DEFAULT_REVIEWS_PER_PLACE)
-        )
+    total_inserted = 0
+    total_updated = 0
+    all_polled_place_ids: set[str] = set()
 
-    with SessionLocal() as session:
-        inserted, updated, polled_place_ids = upsert_reviews(session, raw_places)
-        if polled_place_ids:
-            session.execute(
-                update(Place)
-                .where(Place.place_id.in_(polled_place_ids))
-                .values(last_polled_at=datetime.now(UTC))
-            )
-        session.commit()
+    batches = _chunked(target_place_ids, BATCH_SIZE)
+    for i, batch in enumerate(batches, start=1):
+        on_progress(f"Batch {i}/{len(batches)}: fetching reviews for {len(batch)} places...")
+        raw_places = client.fetch_reviews(batch, reviews_per_place=DEFAULT_REVIEWS_PER_PLACE)
+
+        with SessionLocal() as session:
+            inserted, updated, polled_place_ids = upsert_reviews(session, raw_places)
+            if polled_place_ids:
+                session.execute(
+                    update(Place)
+                    .where(Place.place_id.in_(polled_place_ids))
+                    .values(last_polled_at=datetime.now(UTC))
+                )
+            session.commit()
+
+        total_inserted += inserted
+        total_updated += updated
+        all_polled_place_ids |= polled_place_ids
+        on_progress(
+            f"Batch {i}/{len(batches)} done: {len(polled_place_ids)} polled, "
+            f"{inserted} inserted, {updated} updated"
+        )
 
     actual_estimate = estimate_cost(n_places=0, n_review_records=n_review_records)
     result.update(
         ran=True,
-        places_polled=len(polled_place_ids),
-        inserted=inserted,
-        updated=updated,
+        places_polled=len(all_polled_place_ids),
+        inserted=total_inserted,
+        updated=total_updated,
         actual_cost_usd=actual_estimate.total_usd,
     )
+    on_progress(f"Places polled: {result['places_polled']}")
+    on_progress(f"Reviews inserted: {result['inserted']}")
+    on_progress(f"Reviews updated: {result['updated']}")
+    on_progress(f"Actual cost estimate: ${actual_estimate.total_usd:.2f}")
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    result = run(poll_all=args.all, yes=args.yes)
-
-    print(f"Target scope: {result['scope']}")
-    print(f"Selected places: {result['selected']}")
-
-    if result["selected"] == 0:
-        print("Nothing to poll.")
-        return 0
-
-    if result["capped"]:
-        print(f"Cost cap exceeded: {result['cap_error']}")
-        return 1
-
-    n_records = result["n_review_records"]
-    print(f"Reviews requested: {n_records} ({DEFAULT_REVIEWS_PER_PLACE} per place)")
-    print(f"Estimated cost: ${result['estimated_cost_usd']:.2f}")
-
-    if not result["ran"]:
-        print("Dry run (no --yes passed) — no API call made, nothing spent.")
-        return 0
-
-    print(f"Places polled: {result['places_polled']}")
-    print(f"Reviews inserted: {result['inserted']}")
-    print(f"Reviews updated: {result['updated']}")
-    print(f"Actual cost estimate: ${result['actual_cost_usd']:.2f}")
-    return 0
+    result = run(poll_all=args.all, yes=args.yes, on_progress=print)
+    return 1 if result["capped"] else 0
 
 
 if __name__ == "__main__":

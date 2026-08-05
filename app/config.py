@@ -32,8 +32,24 @@ def _load_settings() -> Settings:
 
 settings = _load_settings()
 
-# Outscraper Maps search query per district (LOGIC.md §8 sweep scope). Extend this dict
-# to open new districts — no other code changes needed.
-DISTRICT_QUERIES: dict[str, str] = {
-    "srodmiescie": "restaurants, Śródmieście, Warszawa, Polska",
+# Outscraper Maps search sub-queries per district (LOGIC.md §8 sweep scope). A single query
+# for a whole district hits Google Maps' ~120-listing-per-query cap (confirmed live in ticket
+# 1.5's first milestone run — Outscraper's own docs recommend splitting into sub-area queries
+# for densely populated areas), so each district maps to a LIST of named-sub-area queries
+# instead. discover.py loops all sub-queries and dedupes across them via the existing
+# place_id-keyed upsert. Extend this dict to open new districts or add sub-areas — no other
+# code changes needed.
+DISTRICT_QUERIES: dict[str, list[str]] = {
+    "srodmiescie": [
+        "restaurants, Nowy Świat, Warszawa, Polska",
+        "restaurants, Powiśle, Warszawa, Polska",
+        "restaurants, Stare Miasto, Warszawa, Polska",
+        "restaurants, Krakowskie Przedmieście, Warszawa, Polska",
+        "restaurants, Plac Zbawiciela, Warszawa, Polska",
+        "restaurants, Plac Konstytucji, Warszawa, Polska",
+        "restaurants, Plac Trzech Krzyży, Warszawa, Polska",
+        "restaurants, Hala Koszyki, Koszykowa, Warszawa, Polska",
+        "restaurants, Muranów, Warszawa, Polska",
+        "restaurants, Ordynacka, Foksal, Warszawa, Polska",
+    ],
 }

@@ -76,16 +76,35 @@ def upsert_places(session: Session, raw_places: list[dict], city: str) -> tuple[
     return inserted, updated
 
 
-def run(district: str, limit: int, yes: bool) -> dict:
+def _split_limit(total_limit: int, n_queries: int) -> list[int]:
+    """Splits total_limit as evenly as possible across n_queries sub-queries (remainder goes
+    to the first few), so the sum of per-sub-query limits always equals total_limit exactly —
+    the cost cap applies to the TOTAL run, not per sub-query."""
+    base, remainder = divmod(total_limit, n_queries)
+    return [base + (1 if i < remainder else 0) for i in range(n_queries)]
+
+
+def run(district: str, limit: int, yes: bool, on_progress=lambda msg: None) -> dict:
     """Core discovery logic, reusable by both the CLI (main) and run_pipeline.py.
+
+    Loops every sub-query configured for the district (LOGIC.md §8 — a single query is capped
+    by Google Maps at ~120 listings), splitting `limit` across them, and dedupes results across
+    sub-queries before upserting (a place appearing in two sub-areas is upserted once).
+
+    `on_progress(str)` is called with a human-readable line as each sub-query completes, so a
+    multi-sub-query --yes run shows live progress rather than a summary printed at the very end.
 
     Always returns a result dict; check result["capped"] for the cap-exceeded case and
     result["ran"] to tell a dry run apart from an actual API call.
     """
-    query = DISTRICT_QUERIES[district]
+    queries = DISTRICT_QUERIES[district]
+    n_queries = len(queries)
+    on_progress(f"District: {district} ({n_queries} sub-area queries)")
+    on_progress(f"Requested limit: {limit} places (split across sub-queries)")
+
     result: dict = {
         "district": district,
-        "query": query,
+        "queries": queries,
         "limit": limit,
         "capped": False,
         "cap_error": None,
@@ -98,57 +117,72 @@ def run(district: str, limit: int, yes: bool) -> dict:
     }
 
     try:
+        # Enforced once against the TOTAL requested limit, before any sub-query runs.
         preflight = enforce_caps(n_places=limit, n_review_records=0)
     except CostCapExceeded as exc:
         result["capped"] = True
         result["cap_error"] = str(exc)
+        on_progress(f"Cost cap exceeded: {exc}")
         return result
 
     result["estimated_cost_usd"] = preflight.total_usd
+    on_progress(f"Estimated cost: ${preflight.total_usd:.2f}")
 
     if not yes:
+        on_progress("Dry run (no --yes passed) — no API call made, nothing spent.")
         return result
 
     client = OutscraperClient()
-    raw_places = client.search_places(query, limit=limit)
+    per_query_limits = _split_limit(limit, n_queries)
+
+    total_raw_returned = 0  # basis for actual cost: Outscraper bills per record per call
+    seen_place_ids: set[str] = set()
+    unique_raw_places: list[dict] = []  # basis for found/inserted/updated: deduped businesses
+
+    for i, (sub_query, sub_limit) in enumerate(zip(queries, per_query_limits, strict=True), 1):
+        if sub_limit <= 0:
+            on_progress(f"Sub-query {i}/{n_queries} skipped (0 of the limit allotted): {sub_query}")
+            continue
+        on_progress(f"Sub-query {i}/{n_queries}: searching '{sub_query}' (limit {sub_limit})...")
+        raw_places = client.search_places(sub_query, limit=sub_limit)
+        total_raw_returned += len(raw_places)
+        new_unique = 0
+        for raw in raw_places:
+            place_id = raw.get("place_id")
+            if place_id and place_id in seen_place_ids:
+                continue
+            if place_id:
+                seen_place_ids.add(place_id)
+            unique_raw_places.append(raw)
+            new_unique += 1
+        on_progress(
+            f"Sub-query {i}/{n_queries} done: {len(raw_places)} returned, "
+            f"{new_unique} new unique places"
+        )
 
     with SessionLocal() as session:
-        inserted, updated = upsert_places(session, raw_places, city=CITY)
+        inserted, updated = upsert_places(session, unique_raw_places, city=CITY)
         session.commit()
 
-    actual = estimate_cost(n_places=len(raw_places), n_review_records=0)
+    actual = estimate_cost(n_places=total_raw_returned, n_review_records=0)
     result.update(
         ran=True,
-        found=len(raw_places),
+        found=len(unique_raw_places),
         inserted=inserted,
         updated=updated,
         actual_cost_usd=actual.total_usd,
     )
+    on_progress(f"Found: {result['found']} (unique, deduped across sub-queries)")
+    on_progress(f"Inserted: {inserted}")
+    on_progress(f"Updated: {updated}")
+    on_progress(f"Actual cost estimate: ${actual.total_usd:.2f}")
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    result = run(args.district, args.limit, args.yes)
-
-    print(f"District: {result['district']} ({result['query']})")
-    print(f"Requested limit: {result['limit']} places")
-
-    if result["capped"]:
-        print(f"Cost cap exceeded: {result['cap_error']}")
-        return 1
-
-    print(f"Estimated cost: ${result['estimated_cost_usd']:.2f}")
-
-    if not result["ran"]:
-        print("Dry run (no --yes passed) — no API call made, nothing spent.")
-        return 0
-
-    print(f"Found: {result['found']}")
-    print(f"Inserted: {result['inserted']}")
-    print(f"Updated: {result['updated']}")
-    print(f"Actual cost estimate: ${result['actual_cost_usd']:.2f}")
-    return 0
+    result = run(args.district, args.limit, args.yes, on_progress=print)
+    return 1 if result["capped"] else 0
 
 
 if __name__ == "__main__":

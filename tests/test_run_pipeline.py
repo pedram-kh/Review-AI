@@ -73,8 +73,10 @@ def test_main_yes_flow_orchestrates_all_three_steps(
     exit_code = main(["--district", "srodmiescie", "--limit", "10", "--yes"])
 
     assert exit_code == 0
-    mock_discover_run.assert_called_once_with(district="srodmiescie", limit=10, yes=True)
-    mock_fetch_run.assert_called_once_with(poll_all=False, yes=True)
+    mock_discover_run.assert_called_once_with(
+        district="srodmiescie", limit=10, yes=True, on_progress=print
+    )
+    mock_fetch_run.assert_called_once_with(poll_all=False, yes=True, on_progress=print)
     mock_qualify.assert_called_once_with(mock_session)
     mock_session.commit.assert_called_once()
 

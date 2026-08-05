@@ -1,6 +1,13 @@
 from unittest.mock import MagicMock, patch
 
-from app.jobs.discover import main, parse_args, upsert_places
+from app.config import DISTRICT_QUERIES
+from app.jobs.discover import _split_limit, main, parse_args, upsert_places
+
+
+def test_split_limit_evenly_divides_with_remainder_to_first_queries() -> None:
+    assert _split_limit(10, 3) == [4, 3, 3]
+    assert _split_limit(9, 3) == [3, 3, 3]
+    assert _split_limit(2, 5) == [1, 1, 0, 0, 0]
 
 
 def test_parse_args_defaults() -> None:
@@ -62,27 +69,54 @@ def test_main_cap_exceeded_aborts_before_api_call(mock_client_cls: MagicMock, ca
 
 @patch("app.jobs.discover.SessionLocal")
 @patch("app.jobs.discover.OutscraperClient")
-def test_main_yes_flow_calls_client_and_upserts(
+def test_main_yes_flow_calls_client_per_sub_query_and_dedupes(
     mock_client_cls: MagicMock, mock_session_local: MagicMock, capsys
 ) -> None:
-    fake_places = [
-        {"place_id": "p1", "name": "A", "address": "addr", "phone": "1", "website": "http://a"}
-    ]
+    n_sub_queries = len(DISTRICT_QUERIES["srodmiescie"])
     mock_client = mock_client_cls.return_value
-    mock_client.search_places.return_value = fake_places
+    # 1st sub-query returns p1; 2nd returns p1 again (cross-sub-query duplicate) + p2;
+    # the rest return nothing — total unique places should be 2, not 3.
+    mock_client.search_places.side_effect = [
+        [{"place_id": "p1", "name": "A", "address": "addr", "phone": "1", "website": "http://a"}],
+        [
+            {"place_id": "p1", "name": "A", "address": "addr", "phone": "1", "website": "http://a"},
+            {"place_id": "p2", "name": "B", "address": "addr2", "phone": "2", "website": "http://b"},
+        ],
+        *([[]] * (n_sub_queries - 2)),
+    ]
 
     mock_session = MagicMock()
     mock_session.execute.return_value = []
     mock_session_local.return_value.__enter__.return_value = mock_session
 
-    exit_code = main(["--district", "srodmiescie", "--limit", "5", "--yes"])
+    exit_code = main(["--district", "srodmiescie", "--limit", "50", "--yes"])
 
     assert exit_code == 0
-    mock_client.search_places.assert_called_once_with(
-        "restaurants, Śródmieście, Warszawa, Polska", limit=5
-    )
+    assert mock_client.search_places.call_count == n_sub_queries
     mock_session.commit.assert_called_once()
     out = capsys.readouterr().out
-    assert "Found: 1" in out
-    assert "Inserted: 1" in out
+    assert "Found: 2 (unique, deduped across sub-queries)" in out
+    assert "Inserted: 2" in out
     assert "Updated: 0" in out
+
+
+@patch("app.jobs.discover.SessionLocal")
+@patch("app.jobs.discover.OutscraperClient")
+def test_main_yes_flow_skips_zero_limit_sub_queries(
+    mock_client_cls: MagicMock, mock_session_local: MagicMock
+) -> None:
+    # limit smaller than the number of sub-queries -> some sub-queries get a 0 split and must
+    # be skipped without calling the API for them.
+    n_sub_queries = len(DISTRICT_QUERIES["srodmiescie"])
+    mock_client = mock_client_cls.return_value
+    mock_client.search_places.return_value = []
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = []
+    mock_session_local.return_value.__enter__.return_value = mock_session
+
+    exit_code = main(["--district", "srodmiescie", "--limit", "3", "--yes"])
+
+    assert exit_code == 0
+    assert mock_client.search_places.call_count == 3
+    assert mock_client.search_places.call_count < n_sub_queries

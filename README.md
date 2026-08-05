@@ -13,7 +13,11 @@ Data pipeline jobs live in `app/jobs/`, all runnable with `python -m app.jobs.<n
 Outscraper-spending step requires an explicit `--yes` flag (LOGIC.md §4); without it, jobs print a
 cost estimate and exit without calling the API or touching the DB via the API.
 
-- `discover` — Outscraper Maps search for restaurants in a district, upserts into `places`.
+- `discover` — Outscraper Maps search for restaurants in a district, upserts into `places`. Each
+  district maps to a *list* of named sub-area queries in `DISTRICT_QUERIES` (`app/config.py`) —
+  Google Maps hard-caps a single query at ~120 listings, so wide districts need several sub-area
+  searches to get real coverage; `--limit` is split evenly across them and the cost cap applies to
+  the total, not per sub-query.
   `python -m app.jobs.discover --district srodmiescie --limit 1000 --yes`
 - `fetch_reviews` — pulls the 10 newest reviews for every un-polled place (or `--all` to re-poll
   everything), upserts into `reviews`, stamps `places.last_polled_at`.

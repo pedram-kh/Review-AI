@@ -37,7 +37,7 @@ like `rat` inside "akurat"): `robak`, `robaki`, `karaluch`, `mysz`, `myszy`, `sz
 `pleśń`, `rat`, `rats`, `mouse`, `mice`, `mold`, `dirty`, `poisoned`.
 
 **Tier 2 — substring match** (stems and phrases that must catch inflections):
-`zatru` (zatrucie/zatrułem/zatrułam/zatruta...), `salmonell`, `sanepid`, `włos w`, `niedogotowan`,
+`zatru` **excluding the employment family — regex `zatru(?!dni)`** (catches zatrucie/zatrułem/zatrułam/zatruta, not zatrudnienie/zatrudnić), `salmonell`, `sanepid`, `włos w`, `niedogotowan`,
 `surowe mięso`, `brudn`, `food poisoning`, `sick after`, `cockroach`, `hair in`, `raw chicken`.
 
 ## 3. Lead status lifecycle
@@ -92,5 +92,6 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-05 | §2 v1.2: `zatru` stem gets negative lookahead `zatru(?!dni)` — second live false positive ('zatrudnieniu'/hiring, ticket 1.5 milestone run). Genuine flags (cockroach, mold) unaffected | Stakeholder + PM |
 | 2026-08-05 | §2 keyword matching v1.1: split into whole-word tier (short standalone words, fixes 'rat'-in-'akurat' false positive found in ticket 1.4 live run) + substring tier (stems/phrases keep inflection coverage). Also broadened stems: zatrucie→zatru, salmonella→salmonell; added plurals robaki/myszy/szczury/rats/mice | Stakeholder + PM |
 | 2026-08-05 | v1 created: qualification Q1–Q6, health keywords, lifecycle, cost caps, polling=manual, outreach constraints, generation summary, Śródmieście pilot scope | Stakeholder + PM |

@@ -98,6 +98,20 @@ def test_detect_health_keyword_substring_tier_catches_inflections() -> None:
     assert _detect_health_keyword("Zatrułam się po tym obiedzie, nie polecam.") == "zatru"
 
 
+def test_detect_health_keyword_zatru_still_matches_genuine_poisoning_forms() -> None:
+    assert _detect_health_keyword("Mielismy zatrucie pokarmowe po tym obiedzie.") == "zatru"
+    assert _detect_health_keyword("Zatrułam się po tym obiedzie, nie polecam.") == "zatru"
+
+
+def test_detect_health_keyword_zatru_excludes_employment_false_positive() -> None:
+    # LOGIC.md v1.2: "zatru(?!dni)" excludes the unrelated "zatrudnienie/zatrudnić"
+    # (hiring/employment) word family — found live in ticket 1.5's milestone run.
+    assert (
+        _detect_health_keyword("Może pub powinien pomyśleć o zatrudnieniu więcej osób.") is None
+    )
+    assert _detect_health_keyword("Powinni zatrudnić więcej kelnerów.") is None
+
+
 # --- qualify() end-to-end (mocked session) ----------------------------------
 
 

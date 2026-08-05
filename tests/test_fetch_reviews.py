@@ -1,11 +1,14 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.jobs.fetch_reviews import (
     _has_owner_reply,
     _parse_review_date,
     main,
     parse_args,
+    run,
     upsert_reviews,
 )
 
@@ -184,3 +187,47 @@ def test_main_yes_flow_calls_client_upserts_and_stamps_last_polled_at(
     assert "Places polled: 1" in out
     assert "Reviews inserted: 1" in out
     assert "Reviews updated: 0" in out
+
+
+@patch("app.jobs.fetch_reviews.BATCH_SIZE", 2)
+@patch("app.jobs.fetch_reviews.SessionLocal")
+@patch("app.jobs.fetch_reviews.OutscraperClient")
+def test_run_commits_each_batch_before_a_later_batch_fails(
+    mock_client_cls: MagicMock, mock_session_local: MagicMock
+) -> None:
+    # Regression test for the live HTTP 414 hit during ticket 1.5's second milestone run:
+    # a failure partway through must not roll back or discard already-fetched batches.
+    batch_1_places = [
+        {
+            "place_id": "p1",
+            "reviews_data": [
+                {
+                    "review_id": "r1",
+                    "review_rating": 5,
+                    "review_text": "Great",
+                    "author_title": "A",
+                    "review_timestamp": 1690000000,
+                    "owner_answer": None,
+                }
+            ],
+        }
+    ]
+    mock_client = mock_client_cls.return_value
+    mock_client.fetch_reviews.side_effect = [batch_1_places, RuntimeError("simulated HTTP 414")]
+
+    mock_session = MagicMock()
+    # select_target_place_ids -> 3 places; BATCH_SIZE=2 -> 2 batches.
+    mock_session.execute.side_effect = [
+        [("p1",), ("p2",), ("p3",)],
+        [],  # batch 1: existing-ids SELECT
+        None,  # batch 1: review INSERT
+        None,  # batch 1: places.last_polled_at UPDATE
+    ]
+    mock_session_local.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(RuntimeError, match="simulated HTTP 414"):
+        run(poll_all=False, yes=True)
+
+    # Batch 1's session was committed before batch 2 raised — its data isn't lost.
+    assert mock_session.commit.call_count == 1
+    assert mock_client.fetch_reviews.call_count == 2

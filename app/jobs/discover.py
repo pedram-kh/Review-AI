@@ -51,10 +51,14 @@ def upsert_places(session: Session, raw_places: list[dict], city: str) -> tuple[
         values = {
             "place_id": place_id,
             "name": raw.get("name"),
-            "address": raw.get("full_address") or raw.get("address"),
+            # Confirmed live against Outscraper's google_maps_search response (2026-08-05):
+            # the fields are "address" and "website" — no "full_address"/"site" keys exist
+            # on this endpoint (those names show up on other Outscraper endpoints, which is
+            # why an earlier version of this code guessed them defensively).
+            "address": raw.get("address"),
             "city": city,
             "phone": raw.get("phone"),
-            "website": raw.get("site") or raw.get("website"),
+            "website": raw.get("website"),
         }
         stmt = (
             pg_insert(Place)

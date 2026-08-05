@@ -22,8 +22,8 @@ def test_upsert_places_counts_insert_and_update() -> None:
     session.execute.side_effect = [[("p1",)], None, None]
 
     raw_places = [
-        {"place_id": "p1", "name": "A", "full_address": "addr1", "phone": "1", "site": "http://a"},
-        {"place_id": "p2", "name": "B", "full_address": "addr2", "phone": "2", "site": "http://b"},
+        {"place_id": "p1", "name": "A", "address": "addr1", "phone": "1", "website": "http://a"},
+        {"place_id": "p2", "name": "B", "address": "addr2", "phone": "2", "website": "http://b"},
     ]
     inserted, updated = upsert_places(session, raw_places, city="Warszawa")
 
@@ -66,7 +66,7 @@ def test_main_yes_flow_calls_client_and_upserts(
     mock_client_cls: MagicMock, mock_session_local: MagicMock, capsys
 ) -> None:
     fake_places = [
-        {"place_id": "p1", "name": "A", "full_address": "addr", "phone": "1", "site": "http://a"}
+        {"place_id": "p1", "name": "A", "address": "addr", "phone": "1", "website": "http://a"}
     ]
     mock_client = mock_client_cls.return_value
     mock_client.search_places.return_value = fake_places

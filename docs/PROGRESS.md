@@ -9,9 +9,21 @@
 
 ---
 
-## Current sprint
+## Current sprint: SPRINT 1 — Data Pipeline
 
-_(none — Sprint 1 not yet scoped)_
+| # | Ticket | Status | Files touched | Cursor notes | PM verdict |
+|---|---|---|---|---|---|
+| 1.1 | Outscraper client + cost guard | 🧪 | app/services/outscraper_client.py, app/services/cost_guard.py, tests/test_cost_guard.py, tests/test_outscraper_client.py | `cost_guard.py` implements LOGIC.md §4 exactly: `MAX_PLACES_PER_RUN=1000`, `MAX_REVIEW_RECORDS_PER_RUN=12000`, `$3/1k places`, `$3/1k review records`; `enforce_caps()` raises `CostCapExceeded` before any API call, `estimate_cost()` is the pure cost math (also usable standalone for pre-flight `--yes`-less estimates in tickets 1.2/1.3). `OutscraperClient.search_places(query, limit)` and `.fetch_reviews(place_ids, reviews_per_place=10)` both call `enforce_caps()` as the first line, before touching the SDK — verified in tests that the mocked SDK method is never called when a cap would be breached. Wraps `outscraper.ApiClient.google_maps_search`/`.google_maps_reviews` (inspected the installed SDK's actual method signatures — there's no separate "search"/"reviews" class, just `ApiClient` with per-endpoint methods) and flattens Outscraper's per-query response wrapping into a plain `list[dict]`. No script calls the client directly — only importable, ready for jobs in 1.2-1.5. 12/12 tests pass (6 cost_guard, 5 outscraper_client, 1 pre-existing health), all with a mocked SDK — zero real Outscraper calls/spend. `ruff` passes. | |
+| 1.2 | Discovery job (Śródmieście pilot) | ⬜ | | | |
+| 1.3 | Review fetch job | ⬜ | | | |
+| 1.4 | Lead qualification filter | ⬜ | | | |
+| 1.5 | Pipeline runner (milestone) | ⬜ | | | |
+
+### Sprint 1 blockers
+_(none yet)_
+
+### Sprint 1 open questions for Stakeholder
+- Outscraper funded? (required before 1.2 can run with --yes)
 
 ---
 

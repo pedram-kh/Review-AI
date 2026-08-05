@@ -30,9 +30,15 @@ If review text matches any health/safety keyword (case-insensitive, Polish + Eng
 created but marked `health_flag` in `notes` and **must never be auto-queued for outreach** —
 human (Stakeholder) reviews it first. Standing constraint #3.
 
-Keyword list v1 (extend via changelog): `zatrucie`, `zatrułem`, `zatrułam`, `salmonella`, `sanepid`,
-`robak`, `karaluch`, `mysz`, `szczur`, `włos w`, `pleśń`, `niedogotowan`, `surowe mięso`, `brudn`,
-`food poisoning`, `poisoned`, `sick after`, `cockroach`, `rat`, `mouse`, `mold`, `hair in`, `raw chicken`, `dirty`.
+Keyword matching v1.1 — two tiers (both case-insensitive):
+
+**Tier 1 — whole-word match** (regex with word boundaries; protects against substring false positives
+like `rat` inside "akurat"): `robak`, `robaki`, `karaluch`, `mysz`, `myszy`, `szczur`, `szczury`,
+`pleśń`, `rat`, `rats`, `mouse`, `mice`, `mold`, `dirty`, `poisoned`.
+
+**Tier 2 — substring match** (stems and phrases that must catch inflections):
+`zatru` (zatrucie/zatrułem/zatrułam/zatruta...), `salmonell`, `sanepid`, `włos w`, `niedogotowan`,
+`surowe mięso`, `brudn`, `food poisoning`, `sick after`, `cockroach`, `hair in`, `raw chicken`.
 
 ## 3. Lead status lifecycle
 
@@ -86,4 +92,5 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-05 | §2 keyword matching v1.1: split into whole-word tier (short standalone words, fixes 'rat'-in-'akurat' false positive found in ticket 1.4 live run) + substring tier (stems/phrases keep inflection coverage). Also broadened stems: zatrucie→zatru, salmonella→salmonell; added plurals robaki/myszy/szczury/rats/mice | Stakeholder + PM |
 | 2026-08-05 | v1 created: qualification Q1–Q6, health keywords, lifecycle, cost caps, polling=manual, outreach constraints, generation summary, Śródmieście pilot scope | Stakeholder + PM |

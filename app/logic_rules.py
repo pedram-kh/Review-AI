@@ -15,31 +15,42 @@ MIN_TEXT_LENGTH = 80
 # Q5 — allowed review languages, ISO 639-1 codes (LOGIC.md §1)
 ALLOWED_LANGUAGES = frozenset({"pl", "en"})
 
-# Health & safety keywords (LOGIC.md §2) — case-insensitive substring match.
-# Polish + English, v1 list. Extend via a dated LOGIC.md changelog entry.
-HEALTH_KEYWORDS = (
-    "zatrucie",
-    "zatrułem",
-    "zatrułam",
-    "salmonella",
-    "sanepid",
+# Health & safety keywords (LOGIC.md §2, v1.1) — case-insensitive, two tiers.
+# Polish + English. Extend/modify only via a dated LOGIC.md changelog entry.
+
+# Tier 1 — whole-word match (regex \b boundaries). Short standalone words that would produce
+# false positives as plain substrings (e.g. "rat" inside the Polish word "akurat").
+HEALTH_KEYWORDS_WHOLE_WORD = (
     "robak",
+    "robaki",
     "karaluch",
     "mysz",
+    "myszy",
     "szczur",
-    "włos w",
+    "szczury",
     "pleśń",
+    "rat",
+    "rats",
+    "mouse",
+    "mice",
+    "mold",
+    "dirty",
+    "poisoned",
+)
+
+# Tier 2 — substring match. Stems/phrases where we deliberately want to catch inflections
+# (e.g. "zatru" catches zatrucie/zatrułem/zatrułam/zatruta...).
+HEALTH_KEYWORDS_SUBSTRING = (
+    "zatru",
+    "salmonell",
+    "sanepid",
+    "włos w",
     "niedogotowan",
     "surowe mięso",
     "brudn",
     "food poisoning",
-    "poisoned",
     "sick after",
     "cockroach",
-    "rat",
-    "mouse",
-    "mold",
     "hair in",
     "raw chicken",
-    "dirty",
 )

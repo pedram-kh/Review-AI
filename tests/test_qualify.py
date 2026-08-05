@@ -84,6 +84,20 @@ def test_detect_health_keyword_no_match() -> None:
     assert _detect_health_keyword("The food was just bland and cold") is None
 
 
+def test_detect_health_keyword_whole_word_avoids_substring_false_positive() -> None:
+    # "akurat" contains "rat" as a substring but is an unrelated Polish word ("as it happens").
+    assert _detect_health_keyword("To nie jest akurat problem żaden, lokal bardzo uroczy.") is None
+
+
+def test_detect_health_keyword_whole_word_matches_plural() -> None:
+    assert _detect_health_keyword("Widziałem tam szczury biegające po kuchni.") == "szczury"
+
+
+def test_detect_health_keyword_substring_tier_catches_inflections() -> None:
+    # "zatru" (tier 2 substring) must still catch inflected forms like "zatrułam".
+    assert _detect_health_keyword("Zatrułam się po tym obiedzie, nie polecam.") == "zatru"
+
+
 # --- qualify() end-to-end (mocked session) ----------------------------------
 
 

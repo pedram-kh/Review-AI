@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import Lead, Place, Review
-from app.prompts import LeadContext, normalize_review_text
+from app.prompts import PROMPT_VERSION, LeadContext, normalize_review_text
 from app.services.claude_client import ClaudeClient
 from app.services.claude_guard import ClaudeCallCapExceeded, cost_for_tokens, enforce_call_cap
 
@@ -60,8 +60,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def load_candidates(session: Session, regenerate: bool) -> list[GenerationTarget]:
-    """All eligible leads in created_at order (LOGIC.md §3: only status='new' leads await a
-    response). Already-generated leads are skipped unless --regenerate."""
+    """All eligible leads in created_at order.
+
+    Normal run: leads still awaiting a response (LOGIC.md §3 status='new', nothing generated yet).
+    --regenerate: exactly the leads that already carry a generated_response, i.e. the batch
+    currently under review — that's the tuning-loop case, re-running the same leads through a
+    new prompt version, so it deliberately ignores status and the health-flag quota.
+    """
     stmt = (
         select(
             Lead.lead_id,
@@ -75,11 +80,12 @@ def load_candidates(session: Session, regenerate: bool) -> list[GenerationTarget
         .select_from(Lead)
         .join(Place, Place.place_id == Lead.place_id)
         .join(Review, Review.review_id == Lead.review_id)
-        .where(Lead.status == NEW_STATUS)
         .order_by(Lead.created_at)
     )
-    if not regenerate:
-        stmt = stmt.where(Lead.generated_response.is_(None))
+    if regenerate:
+        stmt = stmt.where(Lead.generated_response.isnot(None))
+    else:
+        stmt = stmt.where(Lead.status == NEW_STATUS, Lead.generated_response.is_(None))
 
     return [
         GenerationTarget(lead_id=row[0], context=LeadContext(*row[1:]))
@@ -114,16 +120,20 @@ def write_review_file(
     records: list[tuple[GenerationTarget, str]], run_date: str, directory: Path = REVIEW_DIR
 ) -> Path:
     """Writes the Stakeholder review file: one section per lead with everything needed to judge
-    the response without opening the DB."""
+    the response without opening the DB.
+
+    The prompt version is part of the filename so a re-run under a new prompt version sits
+    beside the batch it replaces instead of overwriting it — the tuning loop compares them.
+    """
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"generation_batch_{run_date}.md"
+    path = directory / f"generation_batch_{run_date}_v{PROMPT_VERSION}.md"
 
     n_flagged = sum(1 for target, _ in records if target.context.is_health_flagged)
     lines = [
-        f"# Generation batch — {run_date}",
+        f"# Generation batch — {run_date} — prompt v{PROMPT_VERSION}",
         "",
-        "Prompt: `RESPONSE_PROMPT_V1` (docs/sprints/SPRINT_02.md §Prompt v1), "
-        "model `claude-sonnet-5`, `max_tokens=350`.",
+        f"Prompt: `RESPONSE_PROMPT` v{PROMPT_VERSION} (docs/sprints/SPRINT_02.md "
+        f"§Prompt v{PROMPT_VERSION}), model `claude-sonnet-5`, `max_tokens=350`.",
         "",
         f"Responses in this batch: **{len(records)}** (health-flagged: **{n_flagged}**).",
         "",
@@ -181,7 +191,14 @@ def run(
         candidates = load_candidates(session, regenerate=regenerate)
         skipped_already_generated = 0 if regenerate else count_already_generated(session)
 
-    targets = candidates if take_all else build_batch(candidates, limit)
+    if take_all:
+        targets = candidates
+    elif regenerate:
+        # The set is already fixed (it's the batch under review), so no quota rebalancing —
+        # just the same leads in the same order.
+        targets = candidates[:limit]
+    else:
+        targets = build_batch(candidates, limit)
     n_flagged = sum(1 for t in targets if t.context.is_health_flagged)
 
     result: dict = {

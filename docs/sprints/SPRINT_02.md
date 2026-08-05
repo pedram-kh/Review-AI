@@ -13,7 +13,7 @@
 
 ---
 
-## Prompt v1 (PM draft — the tuning loop refines THIS text)
+## Prompt v1.1 (PM — issued after tuning round 1; v1 findings: 6/12 EN reviews answered in PL, 2 responses >120 words, 1 health-flagged response announced a nonexistent QC procedure)
 
 System/user prompt template for claude-sonnet-5 (one call per lead, temperature default):
 
@@ -24,19 +24,24 @@ profesjonalnie i z klasą. Napisz odpowiedź właściciela na poniższą recenzj
 <restauracja>{name}, {address}</restauracja>
 <recenzja ocena="{rating}/5" data="{review_date}">{review_text}</recenzja>
 
+KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
+Recenzja po polsku → CAŁA odpowiedź wyłącznie po polsku (forma "Państwo").
+Recenzja po angielsku → CAŁA odpowiedź wyłącznie po angielsku (uprzejmy, formalny ton).
+Nigdy nie mieszaj języków.
+
 Zasady (przestrzegaj WSZYSTKICH):
-1. Język odpowiedzi = język recenzji (polski → forma "Państwo"; angielski → uprzejmy angielski).
-2. 60–120 słów. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
+1. Język odpowiedzi = język recenzji (KROK 0).
+2. 60–120 słów; 120 to twardy limit. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
 3. Pierwsze dwa zdania odnoszą się KONKRETNIE do zarzutów z recenzji (nazwij problem własnymi słowami — nie kopiuj obraźliwych sformułowań).
-4. Struktura: krótkie podziękowanie za opinię i wyrazy ubolewania → jedno konkretne, uczciwe zobowiązanie jakościowe → zaproszenie do kontaktu bezpośredniego.
+4. Struktura: krótkie podziękowanie za opinię i wyrazy ubolewania → jedno zobowiązanie uwagi i staranności (np. "przyjrzymy się temu", "zwrócimy na to szczególną uwagę") — NIE ogłaszaj nowych procedur, kontroli ani zmian jako już wprowadzonych → zaproszenie do kontaktu bezpośredniego.
 5. NIGDY: nie potwierdzaj zarzutów jako faktów, nie przyznawaj odpowiedzialności prawnej, nie kłóć się, nie obwiniaj recenzenta, nie wymyślaj faktów/rekompensat/zwolnień personelu, nie wspominaj o AI.
 6. Ton: zajęty właściciel, któremu naprawdę zależy — nie dział PR.
 
-Przed odpowiedzią sprawdź w myślach zgodność z zasadami 1–6 i popraw, jeśli trzeba.
-Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy.
+Przed odpowiedzią sprawdź w myślach: język zgodny z KROKIEM 0? ≤120 słów? zasady 3–6 spełnione?
+Popraw, jeśli trzeba. Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy.
 ```
 
-(`max_tokens=350`, expect ~150–250 output tokens. Health-flagged leads use the same prompt + appended line: "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zero języka przyznającego cokolwiek, maksymalnie neutralnie, priorytet kontaktu offline.")
+(`max_tokens=350`, expect ~150–250 output tokens. Health-flagged leads use the same prompt + appended line: "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zero języka przyznającego cokolwiek, zero ogłaszania nowych procedur lub zmian, wyrazy ubolewania bez przepraszania za konkretny zarzut, maksymalnie neutralnie, priorytet kontaktu bezpośredniego.")
 
 ## Outreach template v1 (PM draft — STAKEHOLDER MUST APPROVE before ticket 2.4 closes)
 

@@ -10,7 +10,7 @@ from app.jobs.generate import (
     parse_args,
     write_review_file,
 )
-from app.prompts import LeadContext
+from app.prompts import PROMPT_VERSION, LeadContext
 
 
 def _target(lead_id: int, flagged: bool = False) -> GenerationTarget:
@@ -189,6 +189,42 @@ def test_reports_already_generated_leads_as_skipped(
     assert "Nothing to generate." in out
 
 
+@patch("app.jobs.generate.count_already_generated", return_value=0)
+@patch("app.jobs.generate.load_candidates")
+@patch("app.jobs.generate.write_review_file")
+@patch("app.jobs.generate.SessionLocal")
+@patch("app.jobs.generate.ClaudeClient")
+def test_regenerate_reruns_the_same_batch_without_quota_rebalancing(
+    mock_client_cls: MagicMock,
+    mock_session_local: MagicMock,
+    mock_write: MagicMock,
+    mock_load: MagicMock,
+    _mock_count: MagicMock,
+) -> None:
+    # load_candidates already scopes --regenerate to leads that have a generated_response;
+    # the batch must then be those exact leads in order, not a fresh quota-balanced pick.
+    previous_batch = [_target(1), _target(2), _target(3, flagged=True)]
+    mock_load.return_value = previous_batch
+    mock_client = mock_client_cls.return_value
+    mock_client.generate_response.side_effect = ["a", "b", "c"]
+    mock_client.input_tokens = 10
+    mock_client.output_tokens = 5
+    mock_session_local.return_value.__enter__.return_value = MagicMock()
+
+    main(["--limit", "40", "--regenerate", "--yes"])
+
+    assert mock_load.call_args.kwargs["regenerate"] is True
+    regenerated = [t.lead_id for t, _ in mock_write.call_args.args[0]]
+    assert regenerated == [1, 2, 3]
+
+
+def test_review_filename_carries_the_prompt_version(tmp_path) -> None:
+    path = write_review_file([(_target(1), "odpowiedź")], "2026-08-05", directory=tmp_path)
+
+    assert path.name == f"generation_batch_2026-08-05_v{PROMPT_VERSION}.md"
+    assert f"prompt v{PROMPT_VERSION}" in path.read_text(encoding="utf-8")
+
+
 def test_write_review_file_contains_every_section(tmp_path) -> None:
     records = [
         (_target(11), "Szanowni Państwo, dziękujemy za opinię."),
@@ -198,7 +234,7 @@ def test_write_review_file_contains_every_section(tmp_path) -> None:
     path = write_review_file(records, "2026-08-05", directory=tmp_path)
     content = path.read_text(encoding="utf-8")
 
-    assert path.name == "generation_batch_2026-08-05.md"
+    assert path.name.startswith("generation_batch_2026-08-05")
     assert "health-flagged: **1**" in content
     assert "Restauracja 11" in content
     assert "**Lead ID:** 12" in content

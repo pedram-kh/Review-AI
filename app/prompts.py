@@ -1,8 +1,9 @@
 """Claude prompt templates (LOGIC.md §7).
 
-RESPONSE_PROMPT_V1 MUST match docs/sprints/SPRINT_02.md §Prompt v1 — change only together.
-Per SPRINT_02.md rule 3, prompt changes are approved by the PM in chat and then synced to
-both places in the same commit; tests/test_prompts.py asserts the two texts are identical.
+RESPONSE_PROMPT MUST match the prompt block in docs/sprints/SPRINT_02.md, and PROMPT_VERSION
+must match that section's heading — change only together. Per SPRINT_02.md rule 3, prompt
+changes are approved by the PM in chat and then synced to both places in the same commit;
+tests/test_prompts.py asserts the two texts and the two version numbers are identical.
 """
 
 import re
@@ -12,25 +13,34 @@ from datetime import datetime
 # Marker written into leads.notes by app/jobs/qualify.py for LOGIC.md §2 health flags.
 HEALTH_FLAG_MARKER = "HEALTH_FLAG"
 
-RESPONSE_PROMPT_V1 = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na recenzje Google
+# Bumped by the PM after each tuning round; recorded in every generation batch review file so a
+# batch can always be traced back to the exact prompt that produced it.
+PROMPT_VERSION = "1.1"
+
+RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na recenzje Google
 profesjonalnie i z klasą. Napisz odpowiedź właściciela na poniższą recenzję.
 
 <restauracja>{name}, {address}</restauracja>
 <recenzja ocena="{rating}/5" data="{review_date}">{review_text}</recenzja>
 
+KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
+Recenzja po polsku → CAŁA odpowiedź wyłącznie po polsku (forma "Państwo").
+Recenzja po angielsku → CAŁA odpowiedź wyłącznie po angielsku (uprzejmy, formalny ton).
+Nigdy nie mieszaj języków.
+
 Zasady (przestrzegaj WSZYSTKICH):
-1. Język odpowiedzi = język recenzji (polski → forma "Państwo"; angielski → uprzejmy angielski).
-2. 60–120 słów. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
+1. Język odpowiedzi = język recenzji (KROK 0).
+2. 60–120 słów; 120 to twardy limit. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
 3. Pierwsze dwa zdania odnoszą się KONKRETNIE do zarzutów z recenzji (nazwij problem własnymi słowami — nie kopiuj obraźliwych sformułowań).
-4. Struktura: krótkie podziękowanie za opinię i wyrazy ubolewania → jedno konkretne, uczciwe zobowiązanie jakościowe → zaproszenie do kontaktu bezpośredniego.
+4. Struktura: krótkie podziękowanie za opinię i wyrazy ubolewania → jedno zobowiązanie uwagi i staranności (np. "przyjrzymy się temu", "zwrócimy na to szczególną uwagę") — NIE ogłaszaj nowych procedur, kontroli ani zmian jako już wprowadzonych → zaproszenie do kontaktu bezpośredniego.
 5. NIGDY: nie potwierdzaj zarzutów jako faktów, nie przyznawaj odpowiedzialności prawnej, nie kłóć się, nie obwiniaj recenzenta, nie wymyślaj faktów/rekompensat/zwolnień personelu, nie wspominaj o AI.
 6. Ton: zajęty właściciel, któremu naprawdę zależy — nie dział PR.
 
-Przed odpowiedzią sprawdź w myślach zgodność z zasadami 1–6 i popraw, jeśli trzeba.
-Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy."""
+Przed odpowiedzią sprawdź w myślach: język zgodny z KROKIEM 0? ≤120 słów? zasady 3–6 spełnione?
+Popraw, jeśli trzeba. Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy."""
 
-# Appended for health-flagged leads (LOGIC.md §2/§7, SPRINT_02.md §Prompt v1 footnote).
-HEALTH_FLAG_SUFFIX = "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zero języka przyznającego cokolwiek, maksymalnie neutralnie, priorytet kontaktu offline."
+# Appended for health-flagged leads (LOGIC.md §2/§7, SPRINT_02.md prompt-section footnote).
+HEALTH_FLAG_SUFFIX = "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zero języka przyznającego cokolwiek, zero ogłaszania nowych procedur lub zmian, wyrazy ubolewania bez przepraszania za konkretny zarzut, maksymalnie neutralnie, priorytet kontaktu bezpośredniego."
 
 # Shown in place of a missing value rather than letting "None" leak into the prompt.
 UNKNOWN_DATE = "nieznana"
@@ -70,9 +80,9 @@ class LeadContext:
 
 
 def render(lead: LeadContext) -> str:
-    """Fill RESPONSE_PROMPT_V1 for one lead, appending the health-flag instruction when the
+    """Fill RESPONSE_PROMPT for one lead, appending the health-flag instruction when the
     lead carries a LOGIC.md §2 flag."""
-    prompt = RESPONSE_PROMPT_V1.format(
+    prompt = RESPONSE_PROMPT.format(
         name=lead.name or "",
         address=lead.address or "",
         rating=lead.rating if lead.rating is not None else UNKNOWN_RATING,

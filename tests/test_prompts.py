@@ -1,9 +1,11 @@
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.prompts import (
     HEALTH_FLAG_SUFFIX,
-    RESPONSE_PROMPT_V1,
+    PROMPT_VERSION,
+    RESPONSE_PROMPT,
     UNKNOWN_DATE,
     UNKNOWN_RATING,
     LeadContext,
@@ -12,12 +14,18 @@ from app.prompts import (
 )
 
 SPRINT_02 = Path(__file__).resolve().parents[1] / "docs" / "sprints" / "SPRINT_02.md"
+PROMPT_HEADING = re.compile(r"^## Prompt v(?P<version>[\d.]+)")
+
+
+def _sprint_doc_heading_version() -> str:
+    lines = SPRINT_02.read_text(encoding="utf-8").splitlines()
+    return next(m.group("version") for line in lines if (m := PROMPT_HEADING.match(line)))
 
 
 def _sprint_doc_prompt() -> str:
-    """Extracts the first fenced code block under '## Prompt v1' in SPRINT_02.md."""
+    """Extracts the first fenced code block under the '## Prompt vX' heading in SPRINT_02.md."""
     lines = SPRINT_02.read_text(encoding="utf-8").splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("## Prompt v1"))
+    start = next(i for i, line in enumerate(lines) if PROMPT_HEADING.match(line))
     fence_open = next(i for i in range(start, len(lines)) if lines[i].strip() == "```")
     fence_close = next(i for i in range(fence_open + 1, len(lines)) if lines[i].strip() == "```")
     return "\n".join(lines[fence_open + 1 : fence_close])
@@ -37,7 +45,12 @@ def _lead(**overrides) -> LeadContext:
 
 def test_prompt_constant_matches_sprint_02_doc() -> None:
     # SPRINT_02.md rule 3: the prompt text lives in both places and may only change together.
-    assert RESPONSE_PROMPT_V1 == _sprint_doc_prompt()
+    assert RESPONSE_PROMPT == _sprint_doc_prompt()
+
+
+def test_prompt_version_matches_sprint_02_heading() -> None:
+    # Batches record PROMPT_VERSION, so it must not drift from the version the PM issued.
+    assert PROMPT_VERSION == _sprint_doc_heading_version()
 
 
 def test_health_flag_suffix_matches_sprint_02_doc() -> None:
@@ -64,7 +77,7 @@ def test_render_appends_health_flag_suffix_for_flagged_lead() -> None:
 
     assert prompt.endswith(HEALTH_FLAG_SUFFIX)
     # The base prompt is unchanged — the flag only adds an instruction.
-    assert prompt.startswith(RESPONSE_PROMPT_V1.split("{")[0])
+    assert prompt.startswith(RESPONSE_PROMPT.split("{")[0])
 
 
 def test_render_does_not_leak_none_for_missing_values() -> None:

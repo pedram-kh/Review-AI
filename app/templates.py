@@ -19,11 +19,11 @@ OUTREACH_TEMPLATE_V1 = """Temat: Odpowiedź na negatywną recenzję {name} — g
 
 Dzień dobry,
 
-zauważyłem, że {name} otrzymała niedawno {rating}-gwiazdkową recenzję w Google, która pozostaje
+zauważyłam, że {name} otrzymała niedawno {rating}-gwiazdkową recenzję w Google, która pozostaje
 bez odpowiedzi. Restauracje, które odpowiadają na takie opinie szybko i profesjonalnie, odzyskują
 zaufanie klientów — a brak reakcji działa na ich niekorzyść w wynikach wyszukiwania.
 
-Przygotowałem dla Państwa gotową, profesjonalną odpowiedź — mogą jej Państwo użyć od ręki, bezpłatnie:
+Przygotowałam dla Państwa gotową, profesjonalną odpowiedź — mogą jej Państwo użyć od ręki, bezpłatnie:
 
 ---
 {generated_response}

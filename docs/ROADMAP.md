@@ -67,6 +67,7 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-06 | Sender persona | "Anna" kept as pen name (alias → Stakeholder inbox), risk of persona exposure at sales stage knowingly accepted | Send as Pedram (PM preference — declined); real second person (not available now) |
 | 2026-08-06 | Sprint 3 scope + parallel start | Dashboard = /admin in new Next.js `reviewguide-app` repo (basic auth now, real auth Sprint 4); workspace scope per PM proposal; sending order = Stakeholder manual pick (newest-first default sort); Sprint 3 opened while 2.4/2.5 sit ⏸ external-gated (WORKFLOW amendment) | Throwaway admin app (wasted work); forced queue order (Stakeholder prefers daily judgment); waiting idle for reviewer verdict |
 | 2026-08-05 | Sprint 2 scope | Tune generation on 30–50 leads before full run; enrichment via Outscraper Emails & Contacts (~$3/1k, no own scraper); PL outreach template drafted in-sprint for Stakeholder approval | Generate-all-immediately (one bad template × 213 = 213 bad first impressions); own website scraper (dev time better spent on prompt quality) |
 | 2026-08-05 | Sprint 1 scope | Śródmieście pilot (~$25) before full central sweep; 10 reviews/place; manual trigger + cost caps + --yes flag; thresholds per LOGIC.md v1 | Full $70 sweep first (tune filters cheap first); auto-scheduling now (sending capacity is the bottleneck, not lead supply) |

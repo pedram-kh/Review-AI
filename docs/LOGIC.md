@@ -102,7 +102,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 - Value-first structure: (1) we noticed the specific unanswered review, (2) here is a ready-to-use professional response — free, (3) soft mention that we do this automatically 24/7, (4) single low-pressure CTA
 - Includes the generated response verbatim as the centerpiece
 - Never: pressure tactics, fake urgency, "your reputation is being destroyed" fear-mongering
-- Sender identity: Anna, real person answering anna@reviewguide.eu (deliverability + PKE/GDPR posture: identifiable sender who genuinely replies)
+- Sender identity: "Anna" — pen name; anna@reviewguide.eu is an alias of the Stakeholder's inbox, all replies answered personally and fast. Stakeholder-accepted risk (2026-08-06): persona may be exposed at call/invoice/meeting stage; decision to be revisited if it costs a conversion
 - Health-flagged leads: never auto-assembled into outreach (§2, §6)
 
 ## 8. Sweep scope (current)
@@ -117,6 +117,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-06 | §7b: Anna confirmed as pen name (alias of Stakeholder inbox) — option C chosen with risk accepted; PM's disclosure obligation discharged | Stakeholder |
 | 2026-08-06 | §3 amendment: dead reachable from ANY status except converted (manual skip with required note). Raised by ticket 3.1 — original diagram only modeled post-send death | Stakeholder + PM |
 | 2026-08-06 | §6: sending order = manual daily pick by Stakeholder (dashboard default sort newest-first); Sprint 3 planning | Stakeholder + PM |
 | 2026-08-06 | §7b sender identity: Anna / anna@reviewguide.eu (domain purchased; signature + reply address aligned) | Stakeholder |

@@ -98,7 +98,7 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 - Value-first structure: (1) we noticed the specific unanswered review, (2) here is a ready-to-use professional response — free, (3) soft mention that we do this automatically 24/7, (4) single low-pressure CTA
 - Includes the generated response verbatim as the centerpiece
 - Never: pressure tactics, fake urgency, "your reputation is being destroyed" fear-mongering
-- Sender identity: Pedram, real name, real reply address (deliverability + PKE/GDPR posture)
+- Sender identity: Anna, real person answering anna@reviewguide.eu (deliverability + PKE/GDPR posture: identifiable sender who genuinely replies)
 - Health-flagged leads: never auto-assembled into outreach (§2, §6)
 
 ## 8. Sweep scope (current)
@@ -113,6 +113,7 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-06 | §7b sender identity: Anna / anna@reviewguide.eu (domain purchased; signature + reply address aligned) | Stakeholder |
 | 2026-08-05 | §7 word limit clarified after v1.2 batch: 60–120 target, >130 hard fail (4 EN responses at 121–126 accepted; no further prompt iteration) | Stakeholder + PM |
 | 2026-08-05 | §7 finalized v1.3 (generation must/never lists, one-call self-check flow, health-flag handling) + §7b outreach message rules added. Sprint 2 planning decisions: tune-on-40-first, Outscraper contacts enrichment, template drafted for approval | Stakeholder + PM |
 | 2026-08-05 | §2 v1.2: `zatru` stem gets negative lookahead `zatru(?!dni)` — second live false positive ('zatrudnieniu'/hiring, ticket 1.5 milestone run). Genuine flags (cockroach, mold) unaffected | Stakeholder + PM |

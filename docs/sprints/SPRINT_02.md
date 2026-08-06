@@ -72,7 +72,7 @@ nową opinię w ciągu godziny. Jeśli chcieliby Państwo przetestować (14 dni 
 odpowiedzieć na tę wiadomość.
 
 Pozdrawiam serdecznie,
-Pedram
+Anna
 {reply_address}
 ```
 

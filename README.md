@@ -54,7 +54,8 @@ cost estimate and exit without calling the API or touching the DB via the API.
   channel by LOGIC.md §6 priority (Facebook → email → contact form) and queues the lead. No API
   calls. Health-flagged leads are never queued. **Blocked until the Stakeholder approves the
   template**: while `TEMPLATE_APPROVED_ON` in `app/templates.py` is `None` the job only previews.
-  Needs `REPLY_ADDRESS` in `.env` — it is signed into every message (LOGIC.md §7b).
+  Needs `REPLY_ADDRESS` in `.env` (`anna@reviewguide.eu`) — it is signed into every message
+  under the sender's name, Anna (LOGIC.md §7b).
   `python -m app.jobs.assemble_outreach` · `--preview`
 
 ## Database migrations (Alembic)
@@ -69,8 +70,8 @@ Alembic reads `DATABASE_URL` from `.env` via `app/config.py` — no separate DB 
 
 **Current setup (Sprint 0, ticket 0.5):** deployed via GitHub connection (`reviewpilot-github`),
 service `reviewpilot-backend` in `eu-west-1`, smallest instance size (0.25 vCPU / 0.5 GB).
-`DATABASE_URL`, `OUTSCRAPER_API_KEY`, `ANTHROPIC_API_KEY` are set directly as App Runner
-**service environment variables** (via `RuntimeEnvironmentVariables` in `create-service`/
+`DATABASE_URL`, `OUTSCRAPER_API_KEY`, `ANTHROPIC_API_KEY` and `REPLY_ADDRESS` are set directly as
+App Runner **service environment variables** (via `RuntimeEnvironmentVariables` in `create-service`/
 `update-service`, `ConfigurationSource: API`) — not via Secrets Manager, and not read from
 `apprunner.yaml`. This was an explicit scope amendment (Stakeholder + PM, ticket 0.5): Secrets
 Manager + an App Runner instance role are deferred to **Sprint 4 hardening**, alongside moving
@@ -79,7 +80,8 @@ RDS to a private VPC connector + NAT (see `docs/PROGRESS.md` and `docs/ROADMAP.m
 `app/config.py` already supports the future switch: set the `AWS_SECRETS_NAME` environment
 variable on the service to the name of a Secrets Manager secret containing a JSON object
 `{"DATABASE_URL": "...", "OUTSCRAPER_API_KEY": "...", "ANTHROPIC_API_KEY": "..."}`, and it will be
-read instead of `.env`/plain env vars. When that switch happens, the App Runner instance role will
+read instead of `.env`/plain env vars. `REPLY_ADDRESS` stays a plain environment variable in both
+modes — it is the public sender address (`anna@reviewguide.eu`), not a secret. When that switch happens, the App Runner instance role will
 need an IAM policy granting `secretsmanager:GetSecretValue` scoped to that one secret's ARN.
 
 **Note on `apprunner.yaml`:** it's committed in the repo (describes the build/run commands and

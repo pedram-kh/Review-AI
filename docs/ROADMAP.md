@@ -46,10 +46,10 @@ pointed at paying customers' profiles.
 
 | Sprint | Length | Theme | Milestone (demo test) | Status |
 |---|---|---|---|---|
-| 0 | 2–3 days | Foundations | Script writes a fake lead into production DB | 🔵 ACTIVE |
-| 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ⚪ Planned |
-| 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | ⚪ Planned |
-| 3 | 1 week | Internal dashboard + outreach starts | 50–100 messages sent; reply-rate number exists | ⚪ Planned |
+| 0 | 2–3 days | Foundations | Script writes a fake lead into production DB | ✅ Closed |
+| 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ✅ Closed (213 leads) |
+| 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | 🟡 2.4/2.5 ⏸ external-gated |
+| 3 | 1 week | Internal dashboard + outreach starts | First 10–20 sends via dashboard; reply tracking live | 🔵 ACTIVE (parallel) |
 | 4 | 1 week | Landing + signup + Stripe | Stranger can reach trial-active account with restaurant connected | ⚪ Planned |
 | 5 | 1 week | Value delivery (launch) | New review on test restaurant → correct alert email arrives | ⚪ Planned |
 | 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | ⚪ Planned |
@@ -67,6 +67,7 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-06 | Sprint 3 scope + parallel start | Dashboard = /admin in new Next.js `reviewguide-app` repo (basic auth now, real auth Sprint 4); workspace scope per PM proposal; sending order = Stakeholder manual pick (newest-first default sort); Sprint 3 opened while 2.4/2.5 sit ⏸ external-gated (WORKFLOW amendment) | Throwaway admin app (wasted work); forced queue order (Stakeholder prefers daily judgment); waiting idle for reviewer verdict |
 | 2026-08-05 | Sprint 2 scope | Tune generation on 30–50 leads before full run; enrichment via Outscraper Emails & Contacts (~$3/1k, no own scraper); PL outreach template drafted in-sprint for Stakeholder approval | Generate-all-immediately (one bad template × 213 = 213 bad first impressions); own website scraper (dev time better spent on prompt quality) |
 | 2026-08-05 | Sprint 1 scope | Śródmieście pilot (~$25) before full central sweep; 10 reviews/place; manual trigger + cost caps + --yes flag; thresholds per LOGIC.md v1 | Full $70 sweep first (tune filters cheap first); auto-scheduling now (sending capacity is the bottleneck, not lead supply) |
 | 2026-08-05 | RDS networking (interim) | Public 5432 open, hardened (force_ssl, 32-char random pw, auto minor upgrades). **HARD GATE: flip to private VPC + NAT (~$37/mo) at Sprint 4 start, before first customer row.** Secrets Manager + App Runner instance role also deferred to same Sprint 4 hardening batch. | VPC connector + NAT now ($32–40/mo protecting only public scraped data pre-revenue); defer deploy (milestone requires live URL) |

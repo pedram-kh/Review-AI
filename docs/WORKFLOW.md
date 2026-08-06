@@ -42,6 +42,7 @@
 ## 4. Rules of collaboration
 
 - **One sprint file is the single source of truth for current work.** If it's not a ticket, it doesn't get built.
+- **Parallel sprints (amendment 2026-08-06):** a new sprint may open while the previous one has tickets remaining ONLY if every remaining ticket is ⏸ blocked on external input (not on work). Blocked tickets stay listed with what unblocks them; the previous sprint closes as soon as they execute.
 - **Cursor must update `PROGRESS.md` in the same commit as the work.** Work without a log entry is treated as not done.
 - **Every ticket has a Cursor prompt.** Stakeholder pastes it as-is; if Cursor needs context, the prompt says which files to read.
 - **New ideas → `BACKLOG.md`.** Never into the current sprint. Reviewed only at sprint boundaries.

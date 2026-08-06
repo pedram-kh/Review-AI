@@ -2,6 +2,7 @@ import functools
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -376,6 +377,96 @@ def test_replied_stamps_replied_at(db_session) -> None:
 
     assert response.status_code == 200
     assert body["replied_at"] is not None
+
+
+@with_admin_key
+@pytest.mark.parametrize(
+    "pre_sent_status", ["new", "response_generated", "enriched", "queued"]
+)
+def test_dead_from_any_pre_sent_status_requires_a_note(db_session, pre_sent_status) -> None:
+    lead = seed_lead(db_session, status=pre_sent_status)
+
+    rejected = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "dead"}
+    )
+    assert rejected.status_code == 422
+    assert "note" in rejected.json()["detail"]
+
+    accepted = client.patch(
+        f"/api/admin/leads/{lead.lead_id}",
+        headers=HEADERS,
+        json={"status": "dead", "notes": "Duplicate listing, wrong place."},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "dead"
+
+
+@with_admin_key
+def test_dead_from_pre_sent_status_rejects_a_blank_note(db_session) -> None:
+    lead = seed_lead(db_session, status="new")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}",
+        headers=HEADERS,
+        json={"status": "dead", "notes": "   "},
+    )
+
+    assert response.status_code == 422
+
+
+@with_admin_key
+def test_dead_from_pre_sent_status_does_not_accept_an_old_unrelated_note(db_session) -> None:
+    # A stale note (e.g. a HEALTH_FLAG marker from qualify.py) must not silently satisfy the
+    # "explain why you're abandoning this lead now" requirement — the note has to come with
+    # this specific skip.
+    lead = seed_lead(db_session, status="enriched", notes="HEALTH_FLAG: cockroach")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "dead"}
+    )
+
+    assert response.status_code == 422
+
+
+@with_admin_key
+@pytest.mark.parametrize("post_send_status", ["sent", "replied"])
+def test_dead_from_post_send_status_does_not_require_a_note(db_session, post_send_status) -> None:
+    lead = seed_lead(db_session, status=post_send_status, channel="email")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "dead"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "dead"
+
+
+@with_admin_key
+def test_converted_to_dead_is_still_rejected(db_session) -> None:
+    lead = seed_lead(db_session, status="replied")
+    client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "converted"}
+    )
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}",
+        headers=HEADERS,
+        json={"status": "dead", "notes": "trying anyway"},
+    )
+
+    assert response.status_code == 422
+    assert "converted" in response.json()["detail"]
+
+
+@with_admin_key
+def test_dead_is_terminal(db_session) -> None:
+    lead = seed_lead(db_session, status="dead", notes="already abandoned")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "new"}
+    )
+
+    assert response.status_code == 422
 
 
 @with_admin_key

@@ -40,16 +40,15 @@ LeadStatus = Literal[
     "new", "response_generated", "enriched", "queued", "sent", "replied", "converted", "dead"
 ]
 
-# The only legal edges per the LOGIC.md §3 diagram. A PATCH that keeps the current status
-# (no-op) always skips this check; anything else not listed here is a 422. Deliberately literal
-# to the diagram — it does not (yet) allow e.g. `queued -> dead`, which SPRINT_03.md ticket 3.3's
-# "Skip -> dead" action will need from more source states than the diagram shows today. Flagging
-# that gap for the PM rather than silently widening the graph (see PROGRESS.md ticket 3.1 notes).
+# The only legal edges per the LOGIC.md §3 diagram, amended 2026-08-06: `dead` is now reachable
+# from every status except `converted` (a Stakeholder-initiated manual skip — closed down, junk
+# review, wrong fit) and is itself terminal (no outgoing edges). A PATCH that keeps the current
+# status (no-op) always skips this check entirely; anything else not listed here is a 422.
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
-    "new": frozenset({"response_generated"}),
-    "response_generated": frozenset({"enriched"}),
-    "enriched": frozenset({"queued"}),
-    "queued": frozenset({"sent"}),
+    "new": frozenset({"response_generated", "dead"}),
+    "response_generated": frozenset({"enriched", "dead"}),
+    "enriched": frozenset({"queued", "dead"}),
+    "queued": frozenset({"sent", "dead"}),
     "sent": frozenset({"replied", "dead"}),
     "replied": frozenset({"converted", "dead"}),
     "converted": frozenset(),
@@ -58,6 +57,12 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 
 # LOGIC.md §2/§6: a health-flagged lead needs an explicit human sign-off before either of these.
 _HEALTH_GUARDED_STATUSES = frozenset({"queued", "sent"})
+
+# LOGIC.md §3: skipping a lead to `dead` from any of these — i.e. before a human ever actually
+# sent anything — requires a note explaining why it's being abandoned. Skips from `sent`/
+# `replied` already carry an implicit reason (no reply after 14 days / negative reply) and are
+# not required to provide one.
+_PRE_SENT_STATUSES = frozenset({"new", "response_generated", "enriched", "queued"})
 
 WARSAW_TZ = ZoneInfo("Europe/Warsaw")
 
@@ -318,6 +323,21 @@ def patch_lead(
                     raise HTTPException(
                         status_code=422,
                         detail="Transition to 'sent' requires a channel to be set (LOGIC.md §6)",
+                    )
+
+            if new_status == "dead" and lead.status in _PRE_SENT_STATUSES:
+                # Must be supplied by THIS request, not merely already present on the lead —
+                # ticket 3.3's "Skip" action requires a note as part of performing the skip,
+                # and an old, unrelated note (e.g. a stale HEALTH_FLAG marker) shouldn't count
+                # as an explanation for abandoning the lead now.
+                skip_note = provided.get("notes")
+                if not skip_note or not skip_note.strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Skipping a pre-sent lead to 'dead' requires a note explaining "
+                            "why (LOGIC.md §3)"
+                        ),
                     )
 
             if (

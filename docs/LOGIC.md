@@ -45,9 +45,12 @@ like `rat` inside "akurat"): `robak`, `robaki`, `karaluch`, `mysz`, `myszy`, `sz
 ```
 new → response_generated → enriched → queued → sent → replied → converted
                                                     ↘ dead (no reply after 14 days OR negative reply)
+Additionally: ANY status except converted → dead (manual skip: Stakeholder decides the business
+should never be contacted — closed down, junk review, wrong fit). dead is terminal.
 ```
 
 Only these transitions are legal. `sent` requires: a human clicked send (semi-manual rule).
+Skips to dead from pre-sent statuses require a note (why we're abandoning the lead).
 
 ## 4. Cost caps (hard limits in code)
 
@@ -67,6 +70,7 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 ## 6. Outreach constraints
 
 - Semi-manual only: a human clicks send. **10–20 messages/day maximum, no bursts.**
+- Sending order: Stakeholder picks leads manually each day from the dashboard (default list sort: newest review first; fresher reviews make stronger outreach hooks). Facebook channel prioritized.
 - A business is contacted **once, ever** (Q6). No follow-up sequences in v1 (BACKLOG candidate).
 - Health-flagged leads: only after Stakeholder review.
 - Channel priority: Facebook Page → email → contact form. (WhatsApp: post-launch, BACKLOG.)
@@ -113,6 +117,8 @@ Only these transitions are legal. `sent` requires: a human clicked send (semi-ma
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-06 | §3 amendment: dead reachable from ANY status except converted (manual skip with required note). Raised by ticket 3.1 — original diagram only modeled post-send death | Stakeholder + PM |
+| 2026-08-06 | §6: sending order = manual daily pick by Stakeholder (dashboard default sort newest-first); Sprint 3 planning | Stakeholder + PM |
 | 2026-08-06 | §7b sender identity: Anna / anna@reviewguide.eu (domain purchased; signature + reply address aligned) | Stakeholder |
 | 2026-08-05 | §7 word limit clarified after v1.2 batch: 60–120 target, >130 hard fail (4 EN responses at 121–126 accepted; no further prompt iteration) | Stakeholder + PM |
 | 2026-08-05 | §7 finalized v1.3 (generation must/never lists, one-call self-check flow, health-flag handling) + §7b outreach message rules added. Sprint 2 planning decisions: tune-on-40-first, Outscraper contacts enrichment, template drafted for approval | Stakeholder + PM |

@@ -367,6 +367,56 @@ def test_sent_stamps_sent_at(db_session) -> None:
 
 
 @with_admin_key
+def test_sent_returns_429_when_daily_cap_reached(db_session) -> None:
+    now_utc = datetime.now(UTC)
+    for _ in range(20):
+        seed_lead(db_session, status="sent", channel="email", sent_at=now_utc)
+    lead = seed_lead(db_session, status="queued", channel="email")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "sent"}
+    )
+
+    assert response.status_code == 429
+    assert "20" in response.json()["detail"]
+
+    unchanged = client.get(f"/api/admin/leads/{lead.lead_id}", headers=HEADERS).json()
+    assert unchanged["status"] == "queued"
+    assert unchanged["sent_at"] is None
+
+
+@with_admin_key
+def test_sent_succeeds_at_nineteen_sent_today(db_session) -> None:
+    now_utc = datetime.now(UTC)
+    for _ in range(19):
+        seed_lead(db_session, status="sent", channel="email", sent_at=now_utc)
+    lead = seed_lead(db_session, status="queued", channel="email")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "sent"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "sent"
+
+
+@with_admin_key
+def test_sent_daily_cap_only_counts_todays_warsaw_sends(db_session) -> None:
+    now_utc = datetime.now(UTC)
+    for _ in range(20):
+        seed_lead(
+            db_session, status="sent", channel="email", sent_at=now_utc - timedelta(days=2)
+        )
+    lead = seed_lead(db_session, status="queued", channel="email")
+
+    response = client.patch(
+        f"/api/admin/leads/{lead.lead_id}", headers=HEADERS, json={"status": "sent"}
+    )
+
+    assert response.status_code == 200
+
+
+@with_admin_key
 def test_replied_stamps_replied_at(db_session) -> None:
     lead = seed_lead(db_session, status="sent", channel="email")
 
@@ -586,3 +636,39 @@ def test_stats_sent_today_counts_only_todays_warsaw_sends(db_session) -> None:
     response = client.get("/api/admin/stats", headers=HEADERS)
 
     assert response.json()["sent_today"] == 1
+
+
+@with_admin_key
+def test_stats_reply_rate_is_zero_when_nothing_sent_yet(db_session) -> None:
+    seed_lead(db_session, status="new")
+
+    response = client.get("/api/admin/stats", headers=HEADERS)
+
+    assert response.json()["reply_rate"] == 0.0
+
+
+@with_admin_key
+def test_stats_reply_rate_is_replies_over_total_ever_sent(db_session) -> None:
+    now_utc = datetime.now(UTC)
+    seed_lead(db_session, status="sent", channel="email", sent_at=now_utc)
+    seed_lead(db_session, status="sent", channel="email", sent_at=now_utc)
+    seed_lead(
+        db_session,
+        status="replied",
+        channel="email",
+        sent_at=now_utc,
+        replied_at=now_utc,
+    )
+    seed_lead(
+        db_session,
+        status="replied",
+        channel="facebook",
+        sent_at=now_utc,
+        replied_at=now_utc,
+    )
+
+    response = client.get("/api/admin/stats", headers=HEADERS)
+    body = response.json()
+
+    assert body["replies"] == 2
+    assert body["reply_rate"] == pytest.approx(2 / 4)

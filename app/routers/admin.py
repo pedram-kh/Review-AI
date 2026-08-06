@@ -64,6 +64,10 @@ _HEALTH_GUARDED_STATUSES = frozenset({"queued", "sent"})
 # not required to provide one.
 _PRE_SENT_STATUSES = frozenset({"new", "response_generated", "enriched", "queued"})
 
+# LOGIC.md §6: "10-20 messages/day maximum, no bursts." Ticket 3.4 enforces the upper bound
+# server-side (the dashboard's own N/20 counter is a UX nicety, not the actual guard).
+MAX_SENDS_PER_DAY = 20
+
 WARSAW_TZ = ZoneInfo("Europe/Warsaw")
 
 
@@ -79,6 +83,18 @@ def warsaw_today_utc_bounds(now: datetime | None = None) -> tuple[datetime, date
     start_local = reference.replace(hour=0, minute=0, second=0, microsecond=0)
     end_local = start_local + timedelta(days=1)
     return start_local.astimezone(UTC), end_local.astimezone(UTC)
+
+
+def _count_sent_today(session: Session) -> int:
+    """One definition of "sent today", shared by the /stats counter (ticket 3.1) and the
+    ticket-3.4 429 cap on PATCH -> sent, so they can never drift into disagreeing with each
+    other about what "today" or "sent" means."""
+    start_utc, end_utc = warsaw_today_utc_bounds()
+    return session.execute(
+        select(func.count())
+        .select_from(Lead)
+        .where(Lead.sent_at.isnot(None), Lead.sent_at >= start_utc, Lead.sent_at < end_utc)
+    ).scalar_one()
 
 
 # --- auth --------------------------------------------------------------------------------
@@ -175,6 +191,9 @@ class StatsResponse(BaseModel):
     sent_today: int
     sent_by_channel: dict[str, int]
     replies: int
+    # replies / total-ever-sent, as a fraction (0.0-1.0, not a percentage) — the G2 gate metric
+    # (ticket 3.4). 0.0 when nothing has been sent yet rather than dividing by zero.
+    reply_rate: float
 
 
 # --- GET /api/admin/leads -------------------------------------------------------------------
@@ -325,6 +344,16 @@ def patch_lead(
                         detail="Transition to 'sent' requires a channel to be set (LOGIC.md §6)",
                     )
 
+                sent_today = _count_sent_today(session)
+                if sent_today >= MAX_SENDS_PER_DAY:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=(
+                            f"Daily send cap ({MAX_SENDS_PER_DAY}/day, Europe/Warsaw) reached "
+                            "for today (LOGIC.md §6)"
+                        ),
+                    )
+
             if new_status == "dead" and lead.status in _PRE_SENT_STATUSES:
                 # Must be supplied by THIS request, not merely already present on the lead —
                 # ticket 3.3's "Skip" action requires a note as part of performing the skip,
@@ -379,18 +408,14 @@ def get_stats(session: Session = Depends(get_session)) -> StatsResponse:
     ).all():
         by_status[status_value] = count
 
-    start_utc, end_utc = warsaw_today_utc_bounds()
-    sent_today = session.execute(
-        select(func.count())
-        .select_from(Lead)
-        .where(Lead.sent_at.isnot(None), Lead.sent_at >= start_utc, Lead.sent_at < end_utc)
-    ).scalar_one()
+    sent_today = _count_sent_today(session)
 
     sent_by_channel: dict[str, int] = {}
     for channel_value, count in session.execute(
         select(Lead.channel, func.count()).where(Lead.sent_at.isnot(None)).group_by(Lead.channel)
     ).all():
         sent_by_channel[channel_value or "unknown"] = count
+    total_sent = sum(sent_by_channel.values())
 
     replies = session.execute(
         select(func.count()).select_from(Lead).where(Lead.replied_at.isnot(None))
@@ -401,4 +426,5 @@ def get_stats(session: Session = Depends(get_session)) -> StatsResponse:
         sent_today=sent_today,
         sent_by_channel=sent_by_channel,
         replies=replies,
+        reply_rate=(replies / total_sent) if total_sent else 0.0,
     )

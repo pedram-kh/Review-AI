@@ -58,6 +58,28 @@ cost estimate and exit without calling the API or touching the DB via the API.
   under the sender's name, Anna (LOGIC.md §7b).
   `python -m app.jobs.assemble_outreach` · `--preview`
 
+## Admin API (Sprint 3 — internal dashboard backend)
+
+`app/routers/admin.py` exposes `/api/admin/*` for the dashboard (a separate Next.js repo, tickets
+3.2+). Every route requires an `X-Admin-Key` header matching `ADMIN_API_KEY` (constant-time
+compare, fails closed if the env var is unset) — there is no cookie/session auth, and the key must
+never reach a browser (the dashboard calls these routes only from its own server).
+
+- `GET /api/admin/leads` — filter by `status`, `channel`, `health_flag`; `search` (place name,
+  case-insensitive); `sort` = `review_date_desc` (default) / `review_date_asc` / `created_at`;
+  `limit`/`offset` (default 200, max 500).
+- `GET /api/admin/leads/{id}` — full lead + place + review.
+- `PATCH /api/admin/leads/{id}` — edit `status`, `notes`, `generated_response`,
+  `outreach_message`, `channel`. Status changes are validated against LOGIC.md §3's transition
+  graph (illegal edges → 422); `sent` requires a channel already set or provided in the same
+  request; a health-flagged lead (`notes LIKE '%HEALTH_FLAG%'`) can only enter `queued`/`sent`
+  with `confirm_health_reviewed: true` in the body (LOGIC.md §2/§6).
+- `GET /api/admin/stats` — counts by status, sends today (Europe/Warsaw day boundary), sends by
+  channel, total replies.
+
+CORS is restricted to a single origin, `APP_ORIGIN` in `.env` (default
+`http://localhost:3000`) — set it to the dashboard's Netlify URL in production.
+
 ## Database migrations (Alembic)
 
 - Apply all migrations: `alembic upgrade head`
@@ -70,8 +92,8 @@ Alembic reads `DATABASE_URL` from `.env` via `app/config.py` — no separate DB 
 
 **Current setup (Sprint 0, ticket 0.5):** deployed via GitHub connection (`reviewpilot-github`),
 service `reviewpilot-backend` in `eu-west-1`, smallest instance size (0.25 vCPU / 0.5 GB).
-`DATABASE_URL`, `OUTSCRAPER_API_KEY`, `ANTHROPIC_API_KEY` and `REPLY_ADDRESS` are set directly as
-App Runner **service environment variables** (via `RuntimeEnvironmentVariables` in `create-service`/
+`DATABASE_URL`, `OUTSCRAPER_API_KEY`, `ANTHROPIC_API_KEY`, `REPLY_ADDRESS`, `ADMIN_API_KEY` and
+`APP_ORIGIN` are set directly as App Runner **service environment variables** (via `RuntimeEnvironmentVariables` in `create-service`/
 `update-service`, `ConfigurationSource: API`) — not via Secrets Manager, and not read from
 `apprunner.yaml`. This was an explicit scope amendment (Stakeholder + PM, ticket 0.5): Secrets
 Manager + an App Runner instance role are deferred to **Sprint 4 hardening**, alongside moving
@@ -80,9 +102,12 @@ RDS to a private VPC connector + NAT (see `docs/PROGRESS.md` and `docs/ROADMAP.m
 `app/config.py` already supports the future switch: set the `AWS_SECRETS_NAME` environment
 variable on the service to the name of a Secrets Manager secret containing a JSON object
 `{"DATABASE_URL": "...", "OUTSCRAPER_API_KEY": "...", "ANTHROPIC_API_KEY": "..."}`, and it will be
-read instead of `.env`/plain env vars. `REPLY_ADDRESS` stays a plain environment variable in both
-modes — it is the public sender address (`anna@reviewguide.eu`), not a secret. When that switch happens, the App Runner instance role will
-need an IAM policy granting `secretsmanager:GetSecretValue` scoped to that one secret's ARN.
+read instead of `.env`/plain env vars. `REPLY_ADDRESS` and `APP_ORIGIN` stay plain environment
+variables in both modes — neither is a secret (a public sender address and a CORS origin). When
+that switch happens, the App Runner instance role will need an IAM policy granting
+`secretsmanager:GetSecretValue` scoped to that one secret's ARN — and `ADMIN_API_KEY` should move
+into the secret's JSON alongside the other three at that point, since unlike `REPLY_ADDRESS` it
+genuinely is one; `app/config.py` doesn't do that yet, deferred with the rest of Sprint 4.
 
 **Note on `apprunner.yaml`:** it's committed in the repo (describes the build/run commands and
 Python 3.11 runtime) but is **not currently used** by the deployed service. App Runner's

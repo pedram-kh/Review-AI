@@ -42,6 +42,34 @@ _(none yet)_
 
 ---
 
+## Current sprint: SPRINT 3 — Internal Dashboard + First Sends (parallel with Sprint 2 ⏸ tickets)
+
+| # | Ticket | Status | Files touched | Cursor notes | PM verdict |
+|---|---|---|---|---|---|
+| 3.1 | Backend admin API | 🧪 | app/routers/admin.py, app/main.py, app/config.py, .env.example, README.md, tests/conftest.py, tests/test_admin.py | **`app/routers/admin.py`** — all four endpoints behind `require_admin_key` (constant-time `secrets.compare_digest`, fails closed if `ADMIN_API_KEY` is unset rather than letting an empty key match an empty header). `GET /leads` filters (status/channel/health_flag/search) + sort (`review_date_asc`/`review_date_desc`/`created_at`, default `review_date_desc` per LOGIC §6's "newest review first") + `limit`/`offset` (200/500 default/max — pagination safety net, not in the ticket text but the lead count only grows; disclosed rather than left unbounded). `GET /leads/{id}` returns the full place+review join, 404 if missing. `GET /stats` returns counts for every status (zero-filled, not just the ones present), `sent_today`/`sent_by_channel`/`replies`; the Europe/Warsaw day-boundary helper (`warsaw_today_utc_bounds`) is written now so ticket 3.4's 20/day cap reuses the exact same "today" instead of two definitions drifting apart. **`PATCH /leads/{id}`** — `ALLOWED_TRANSITIONS` is the LOGIC §3 diagram as a literal adjacency dict; a same-status PATCH is always a no-op (skips validation entirely, so it can't re-stamp `sent_at`); anything else not a listed edge is 422 with the specific from/to states named. `sent` requires a channel already on the lead or provided in the same body; health-flagged leads need `confirm_health_reviewed: true` in that exact request to enter `queued`/`sent` (LOGIC §2/§6) — it's a request-time gate only, not a stored column, so it must be resent on every such PATCH; `confirm_health_reviewed` matches nothing else that transition might touch. Editable fields (`notes`, `generated_response`, `outreach_message`, `channel`) apply independently of any status change. **Disclosed gap, not resolved here:** ticket 3.3's planned "Skip → dead" action implies more source states can reach `dead` than the LOGIC §3 diagram shows (which only allows it from `sent`/`replied`) — implemented strictly per the diagram as ticket 3.1 instructs; flagging for the PM before 3.3 rather than quietly widening the transition graph now. **CORS** via `CORSMiddleware` in `app/main.py`, `allow_origins=[APP_ORIGIN]` (default `http://localhost:3000`) — live-verified: an `Origin: http://evil.example` preflight gets `400`, the configured origin gets `200`. **Housekeeping while touching `.env.example`:** it was missing `REPLY_ADDRESS` from ticket 2.4 — added, plus the two new ticket-3.1 vars. **Tests:** new `tests/conftest.py` introduces an in-memory SQLite `db_session` fixture (`StaticPool` so the same in-memory DB persists across the session) with `get_session` dependency-overridden on the app — a first for this codebase; every prior job test mocks `SessionLocal`, but the admin router's value is almost entirely in its SQL (joins/filters/sorts/grouped counts), so a mock would test the mock. 33 tests: auth (missing/wrong/empty-vs-unset key), every filter + combination, both sort orders + the created_at default, every legal and one illegal and one backwards transition, the no-op case, the sent-channel rule (both branches), both health-flag guards (blocked + confirmed) on both `queued` and `sent`, `sent_at`/`replied_at` stamping, 404s, unknown-field rejection, and all four stats aggregations. **Live-verified against the real DB** (not just the test suite): `GET /stats` against the live 213-lead table returned real counts; `GET /leads/999999` → 404; missing/wrong key → 401 through an actual running `uvicorn` process, not just `TestClient`. 174/174 tests pass, `ruff` clean. | |
+| 3.2 | App repo bootstrap (/admin basic auth) | ⬜ | | | |
+| 3.3 | Lead workspace UI | ⬜ | | | |
+| 3.4 | Send-day guardrails + tracking | ⬜ | | | |
+| 3.5 | First real sends (milestone; needs 2.4/2.5) | ⬜ | | | |
+
+### Sprint 3 blockers
+- 3.5 blocked until Sprint 2 tickets 2.4/2.5 execute (external: PL reviewer verdict + template approval)
+
+### Sprint 3 open questions for Stakeholder
+- Create GitHub repo `reviewguide-app` + Netlify site (blocks 3.2 deploy)
+- Choose ADMIN_USER/ADMIN_PASS (basic auth) — put in Netlify env, never in chat/repo
+- **New from 3.1:** `ALLOWED_TRANSITIONS` only permits `dead` from `sent`/`replied`, exactly per
+  LOGIC §3's diagram. Ticket 3.3 describes a "Skip → dead" action in the lead workspace with no
+  stated source-status restriction. If that's meant to work from `new`/`enriched`/`queued` too,
+  LOGIC §3 needs a dated amendment before 3.3 is built — flagging now so it's a decision, not a
+  silent widening of the transition graph when 3.3 starts.
+
+### Sprint 3 notes
+- 2026-08-06 (ticket 3.1): a generated `ADMIN_API_KEY` was written to `.env` (`secrets.token_urlsafe(32)`,
+  local dev only, never committed) so the admin API isn't accidentally left open locally.
+
+---
+
 ## Review cycle log
 
 | Date | Cycle | What was reviewed | Outcome | Follow-ups |

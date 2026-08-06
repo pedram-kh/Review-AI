@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     # Signed into every outreach message (LOGIC.md §7b: real name, real reply address).
     reply_address: str = ""
+    # Compared (constant-time) against the X-Admin-Key header on every /api/admin/* request
+    # (SPRINT_03.md ticket 3.1). Not a Secrets Manager field, same reasoning as reply_address:
+    # it's read straight from the environment in both local and AWS Secrets Manager modes.
+    admin_api_key: str = ""
+    # CORS is restricted to exactly this origin (the Next.js dashboard on Netlify) — see
+    # app/main.py. Defaults to the local dev server so `npm run dev` works out of the box.
+    app_origin: str = "http://localhost:3000"
 
 
 def _load_settings() -> Settings:

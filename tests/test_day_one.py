@@ -246,11 +246,40 @@ def test_second_run_is_idempotent_and_generates_nothing_new(
     mock_claude_cls.return_value.generate_customer_response.return_value = _generated("Odpowiedź.")
 
     first = run_day_one_for_customer(db_session, customer)
+    mock_claude_cls.return_value.generate_customer_response.reset_mock()
     second = run_day_one_for_customer(db_session, customer)
 
     assert first["drafts_generated"] == 1
     assert second["drafts_generated"] == 0
     assert db_session.query(Alert).count() == 1
+    # The idempotency check must happen BEFORE any Claude spend, not just before the DB write —
+    # a live re-run of this exact scenario (ticket 5.1 verification, 2026-08-07) burned 10 real
+    # Claude calls it then threw away at the ON CONFLICT DO NOTHING insert, before this guard
+    # was added. Real money, real bug, fixed same day it was found.
+    mock_claude_cls.return_value.generate_customer_response.assert_not_called()
+
+
+@patch("app.jobs.day_one.enforce_call_cap")
+@patch("app.jobs.day_one.ClaudeClient")
+def test_cap_is_enforced_only_against_pending_not_already_alerted_reviews(
+    mock_claude_cls: MagicMock, mock_enforce_call_cap: MagicMock, db_session
+) -> None:
+    _seed_place(db_session, fresh=True)
+    _seed_review(db_session, review_id="r1", rating=2, days_old=1)
+    _seed_review(db_session, review_id="r2", rating=5, days_old=1)
+    customer = _seed_customer(db_session)
+    mock_claude_cls.return_value.generate_customer_response.return_value = _generated("Odpowiedź.")
+
+    run_day_one_for_customer(db_session, customer)  # r1 + r2 both drafted and alerted
+    mock_enforce_call_cap.reset_mock()
+    _seed_review(db_session, review_id="r3", rating=4, days_old=1)  # only genuinely new review
+
+    run_day_one_for_customer(db_session, customer)
+
+    # Cap must be sized to what will actually be spent this run (1 pending review), not to the
+    # full qualifying set (3) — otherwise a customer with a long history of already-alerted
+    # reviews could spuriously hit the cap on every re-run despite spending nothing.
+    mock_enforce_call_cap.assert_called_once_with(1)
 
 
 @pytest.mark.parametrize("rating", [1, 2, 3])

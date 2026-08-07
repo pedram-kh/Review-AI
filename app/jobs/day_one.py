@@ -148,8 +148,31 @@ def run_day_one_for_customer(
         on_progress("Nothing fresh enough to draft — no digest sent.")
         return result
 
+    # Idempotency check BEFORE any Claude spend, not after: a re-run (retried connect-place call,
+    # or an ops re-run via this module's own CLI) must not re-pay for a draft it is only going to
+    # throw away at the ON CONFLICT DO NOTHING insert below. Cheap enough to always do — this is a
+    # <=10-row lookup, no different in cost from the ORM one-row-at-a-time inserts already used
+    # throughout this function.
+    already_alerted_ids = set(
+        session.execute(
+            select(Alert.review_id).where(
+                Alert.customer_id == customer.customer_id,
+                Alert.review_id.in_([r.review_id for r in qualifying]),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    pending = [r for r in qualifying if r.review_id not in already_alerted_ids]
+    for review_id in already_alerted_ids:
+        on_progress(f"Review {review_id} — already alerted, skipped (idempotent, $0).")
+
+    if not pending:
+        on_progress("No new drafts (all qualifying reviews already alerted) — no digest sent.")
+        return result
+
     try:
-        enforce_call_cap(len(qualifying))
+        enforce_call_cap(len(pending))
     except ClaudeCallCapExceeded as exc:
         result["capped"] = True
         result["cap_error"] = str(exc)
@@ -160,7 +183,7 @@ def run_day_one_for_customer(
     digest_items: list[DigestDraftItem] = []
     alerted_review_ids: list[str] = []
 
-    for review in qualifying:
+    for review in pending:
         keyword = detect_health_keyword(review.text or "")
         lead = LeadContext(
             name=place.name,

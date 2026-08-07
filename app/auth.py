@@ -11,8 +11,13 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import jwt
+from fastapi import Depends, Header, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.db import get_session
+from app.models import Customer
 
 TOKEN_TTL = timedelta(minutes=15)
 SESSION_TTL = timedelta(days=30)
@@ -54,3 +59,29 @@ def decode_session_token(token: str) -> int:
     """
     payload = jwt.decode(token, settings.auth_jwt_secret, algorithms=[JWT_ALGORITHM])
     return int(payload["sub"])
+
+
+def get_current_customer(
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_session),
+) -> Customer:
+    """FastAPI dependency shared by every session-authenticated customer endpoint (SPRINT_04.md
+    ticket 4.3's billing router originally, now SPRINT_05.md ticket 5.1's customer router too —
+    moved here from app.routers.billing so a second router doesn't import a dependency out of
+    another router's module). Same contract as decode_session_token's docstring: the backend
+    re-verifies the JWT itself rather than trusting an unauthenticated customer_id."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing session.")
+
+    token = authorization.removeprefix("Bearer ")
+    try:
+        customer_id = decode_session_token(token)
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Session is invalid or expired.") from exc
+
+    customer = session.execute(
+        select(Customer).where(Customer.customer_id == customer_id)
+    ).scalar_one_or_none()
+    if customer is None:
+        raise HTTPException(status_code=401, detail="Session is invalid or expired.")
+    return customer

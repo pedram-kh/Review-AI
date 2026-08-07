@@ -77,3 +77,49 @@ def render_magic_link_email(magic_link_url: str) -> tuple[str, str]:
     return MAGIC_LINK_EMAIL_SUBJECT, MAGIC_LINK_EMAIL_BODY_TEMPLATE.format(
         magic_link_url=magic_link_url
     )
+
+
+# --- Welcome digest (SPRINT_05.md ticket 5.1's day-one job) -----------------------------------
+#
+# DRAFT COPY ONLY — not PM/Stakeholder-reviewed. Ticket 5.4 owns the finalized welcome-digest
+# template ("Done when: two Postmark templates in code... (b) welcome digest") and is expected
+# to replace this. Same gate pattern as TEMPLATE_APPROVED_ON above: while
+# WELCOME_DIGEST_APPROVED_ON is None, app/jobs/day_one.py composes the digest and logs it via
+# postmark_client's own POSTMARK_TOKEN-unset path (never calls send_email), so ticket 5.1's
+# connect flow is fully functional and testable today without risking unpolished copy reaching
+# a real inbox before 5.4 reviews it. Flipping this constant to a date is 5.4's call, exactly
+# like TEMPLATE_APPROVED_ON is 2.4's.
+WELCOME_DIGEST_APPROVED_ON: str | None = None
+
+
+@dataclass(frozen=True)
+class DigestDraftItem:
+    place_name: str | None
+    rating: int | None
+    review_text: str
+    response_text: str
+    is_urgent: bool
+
+
+def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str]:
+    """(subject, body) for the day-one welcome digest. `[SZKIC]` (draft) stays in the subject
+    on purpose — a visible tell in case this ever sends before 5.4 replaces it, which shouldn't
+    happen while WELCOME_DIGEST_APPROVED_ON is None, but the gate is a code review away from
+    being flipped without the copy also being replaced."""
+    subject = "[SZKIC] Twoje pierwsze odpowiedzi są gotowe"
+    blocks = []
+    for item in items:
+        badge = "PILNE — " if item.is_urgent else ""
+        rating = item.rating if item.rating is not None else UNKNOWN_RATING
+        blocks.append(
+            f"{badge}{item.place_name or 'Recenzja'} — {rating}/5\n\n"
+            f"Recenzja:\n{item.review_text.strip()}\n\n"
+            f"Gotowa odpowiedź (kopiuj-wklej):\n{item.response_text.strip()}"
+        )
+    body = (
+        "Cześć,\n\n"
+        f"przygotowaliśmy {len(items)} gotowych odpowiedzi na najnowsze opinie Państwa "
+        "restauracji:\n\n" + "\n\n---\n\n".join(blocks) + "\n\n"
+        "Skopiuj wybraną odpowiedź i wklej ją w Profilu Firmy Google."
+    )
+    return subject, body

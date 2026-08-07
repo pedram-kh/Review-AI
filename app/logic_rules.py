@@ -60,3 +60,23 @@ HEALTH_KEYWORDS_SUBSTRING = (
     ("hair in", re.escape("hair in")),
     ("raw chicken", re.escape("raw chicken")),
 )
+
+_WHOLE_WORD_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(kw) for kw in HEALTH_KEYWORDS_WHOLE_WORD) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def detect_health_keyword(text: str) -> str | None:
+    """LOGIC.md §2 keyword match (both tiers). Shared by app/jobs/qualify.py (System A leads)
+    and app/jobs/day_one.py (System B customer product, SPRINT_05.md ticket 5.1) — moved here
+    from qualify.py so the one regex-matching implementation can't drift between the two call
+    sites (qualify.py re-exports it as `_detect_health_keyword` for its existing tests)."""
+    whole_word_match = _WHOLE_WORD_PATTERN.search(text)
+    if whole_word_match:
+        return whole_word_match.group(1).lower()
+
+    for label, pattern in HEALTH_KEYWORDS_SUBSTRING:
+        if re.search(pattern, text, re.IGNORECASE):
+            return label
+    return None

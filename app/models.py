@@ -57,6 +57,12 @@ class Customer(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(Text)
     subscription_status: Mapped[str] = mapped_column(Text, server_default="none")
     notification_email: Mapped[str | None] = mapped_column(Text)
+    # SPRINT_05.md ticket 5.1: feeds the customer-facing generation prompt starting ticket 5.3
+    # (the tone selector is on the settings panel there); the column ships now so 5.3 has it.
+    tone_preference: Mapped[str] = mapped_column(Text, server_default="formal")
+    # Set once, at connect-place time (LOGIC.md §8a). Distinct from created_at (account signup) —
+    # a customer can sign up and browse before ever connecting a restaurant.
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuthToken(Base):
@@ -96,4 +102,37 @@ class Lead(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Alert(Base):
+    """One row per (customer, review) draft ever produced for the customer product (System B,
+    LOGIC.md §8a) — SPRINT_05.md ticket 5.1's day-one digest AND ticket 5.2's ongoing 2h-cycle
+    alerts both write here, under `kind` ('digest' vs 'alert'). This dual use is deliberate, not
+    speculative: 5.2's own spec detects "reviews not yet alerted (join on alerts)", and without
+    the day-one digest also recording its rows here, a customer's very first scheduled poll run
+    would immediately re-alert on the same reviews their welcome digest just covered. The
+    UniqueConstraint enforces that at the DB level — the same "idempotent, safe to double-fire"
+    posture SPRINT_05.md's rule 2 asks of the poller, extended to the connect flow too.
+
+    `created_at` is a disclosed addition beyond the ticket's literal column list (same
+    justification as auth_tokens.created_at in migration 004): it's what ticket 5.3's "recent
+    alerts list" sorts by, since `sent_at` is nullable while WELCOME_DIGEST_APPROVED_ON /
+    5.4's send gate is off.
+    """
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "review_id", name="uq_alerts_customer_review"),
+    )
+
+    alert_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.customer_id"))
+    review_id: Mapped[str] = mapped_column(Text, ForeignKey("reviews.review_id"))
+    response_text: Mapped[str] = mapped_column(Text)
+    is_urgent: Mapped[bool] = mapped_column(Boolean)
+    # values: digest (ticket 5.1 day-one) | alert (ticket 5.2 ongoing poll)
+    kind: Mapped[str] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    postmark_message_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

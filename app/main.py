@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import admin, auth, billing, health
+from app.routers import admin, auth, billing, customer, health
 
 app = FastAPI(title="ReviewPilot Backend")
 
@@ -27,3 +27,4 @@ app.include_router(health.router)
 app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(billing.router)
+app.include_router(customer.router)

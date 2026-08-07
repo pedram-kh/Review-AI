@@ -19,16 +19,20 @@ logger = logging.getLogger(__name__)
 POSTMARK_SEND_URL = "https://api.postmarkapp.com/email"
 
 
-def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
-    subject, body = render_magic_link_email(magic_link_url)
-
+def send_email(to_email: str, subject: str, text_body: str) -> str | None:
+    """Generic transactional send, shared by every Postmark caller (magic-link today; the
+    SPRINT_05.md ticket 5.1 day-one digest and ticket 5.2's alert emails next). Same env-gate as
+    the rest of this module: returns None and only logs while POSTMARK_TOKEN is unset, otherwise
+    sends for real and returns Postmark's MessageID (so callers like app/jobs/day_one.py can
+    persist it on their own DB rows)."""
     if not settings.postmark_token:
         logger.info(
-            "POSTMARK_TOKEN unset — not sending; magic-link email to %s would contain: %s",
+            "POSTMARK_TOKEN unset — not sending %r to %s; body would be:\n%s",
+            subject,
             to_email,
-            magic_link_url,
+            text_body,
         )
-        return
+        return None
 
     response = httpx.post(
         POSTMARK_SEND_URL,
@@ -41,9 +45,15 @@ def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
             "From": f"{settings.postmark_from_name} <{settings.postmark_from_email}>",
             "To": to_email,
             "Subject": subject,
-            "TextBody": body,
+            "TextBody": text_body,
             "MessageStream": "outbound",
         },
         timeout=10.0,
     )
     response.raise_for_status()
+    return response.json().get("MessageID")
+
+
+def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
+    subject, body = render_magic_link_email(magic_link_url)
+    send_email(to_email, subject, body)

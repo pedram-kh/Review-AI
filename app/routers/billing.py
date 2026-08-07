@@ -14,14 +14,13 @@ calling us, authenticated instead by Stripe's HMAC signature on the payload
 
 import logging
 
-import jwt as pyjwt
 import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import decode_session_token
+from app.auth import get_current_customer
 from app.config import settings
 from app.db import get_session
 from app.models import Customer
@@ -46,27 +45,6 @@ def _require_stripe_configured() -> None:
             status_code=503, detail="Billing is not configured yet (STRIPE_SECRET_KEY unset)."
         )
     stripe.api_key = settings.stripe_secret_key
-
-
-def get_current_customer(
-    authorization: str | None = Header(default=None),
-    session: Session = Depends(get_session),
-) -> Customer:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing session.")
-
-    token = authorization.removeprefix("Bearer ")
-    try:
-        customer_id = decode_session_token(token)
-    except pyjwt.PyJWTError as exc:
-        raise HTTPException(status_code=401, detail="Session is invalid or expired.") from exc
-
-    customer = session.execute(
-        select(Customer).where(Customer.customer_id == customer_id)
-    ).scalar_one_or_none()
-    if customer is None:
-        raise HTTPException(status_code=401, detail="Session is invalid or expired.")
-    return customer
 
 
 def _get_or_create_stripe_customer(customer: Customer, session: Session) -> str:

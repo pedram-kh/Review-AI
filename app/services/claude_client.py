@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from anthropic import Anthropic
 
 from app.config import settings
-from app.prompts import LeadContext, render
+from app.prompts import LeadContext, render, render_for_customer
 from app.services.claude_guard import MAX_CLAUDE_CALLS_PER_RUN, ClaudeCallCapExceeded
 
 MODEL = "claude-sonnet-5"
@@ -50,6 +50,15 @@ class ClaudeClient:
         """Generate one owner response for `lead`. LOGIC.md §7: exactly one call per lead —
         the self-check/revision happens inside that same call, so the model returns only the
         final text. Enforces the per-run call cap before touching the API."""
+        return self._call(render(lead))
+
+    def generate_customer_response(self, lead: LeadContext) -> GeneratedResponse:
+        """Same contract as generate_response(), but for the customer product (System B,
+        LOGIC.md §8a, SPRINT_05.md ticket 5.1): rating-aware, since every review gets a draft
+        there, not just qualifying negative ones (render_for_customer() picks the template)."""
+        return self._call(render_for_customer(lead))
+
+    def _call(self, prompt_text: str) -> GeneratedResponse:
         if self.calls_made >= MAX_CLAUDE_CALLS_PER_RUN:
             raise ClaudeCallCapExceeded(
                 f"Claude calls per run capped at {MAX_CLAUDE_CALLS_PER_RUN}, "
@@ -59,7 +68,7 @@ class ClaudeClient:
         message = self._client.messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
-            messages=[{"role": "user", "content": render(lead)}],
+            messages=[{"role": "user", "content": prompt_text}],
         )
 
         self.calls_made += 1

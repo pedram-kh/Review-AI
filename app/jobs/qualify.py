@@ -6,7 +6,6 @@ Usage:
 Pure DB scan + local language detection — no API calls, no cost, no --yes needed.
 """
 
-import re
 import sys
 from datetime import UTC, datetime, timedelta
 
@@ -18,20 +17,14 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.logic_rules import (
     ALLOWED_LANGUAGES,
-    HEALTH_KEYWORDS_SUBSTRING,
-    HEALTH_KEYWORDS_WHOLE_WORD,
     MAX_RATING_FOR_LEAD,
     MAX_REVIEW_AGE_DAYS,
     MIN_TEXT_LENGTH,
 )
+from app.logic_rules import detect_health_keyword as _detect_health_keyword
 from app.models import Lead, Review
 
 RULE_KEYS = ("q1", "q2", "q3", "q4", "q5", "q6")
-
-_WHOLE_WORD_PATTERN = re.compile(
-    r"\b(" + "|".join(re.escape(kw) for kw in HEALTH_KEYWORDS_WHOLE_WORD) + r")\b",
-    re.IGNORECASE,
-)
 
 
 def _passes_q1_rating(review: Review) -> bool:
@@ -58,17 +51,6 @@ def _passes_q5_language(review: Review) -> bool:
         return False
     lang, _score = langid.classify(review.text)
     return lang in ALLOWED_LANGUAGES
-
-
-def _detect_health_keyword(text: str) -> str | None:
-    whole_word_match = _WHOLE_WORD_PATTERN.search(text)
-    if whole_word_match:
-        return whole_word_match.group(1).lower()
-
-    for label, pattern in HEALTH_KEYWORDS_SUBSTRING:
-        if re.search(pattern, text, re.IGNORECASE):
-            return label
-    return None
 
 
 def qualify(session: Session) -> dict[str, int]:

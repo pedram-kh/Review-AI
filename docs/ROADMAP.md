@@ -67,6 +67,7 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-07 | NAT gate: executed | Stakeholder call ("GO NOW. Full cutover today."): full CUTOVER.md runbook (private RDS + NAT Gateway + Secrets Manager + App Runner instance role + SSM bastion bridge) executed same day against production, all 9 steps gated and green, zero customer-facing downtime, ~$37/mo added | Waiting for launch week (delays the Sprint 0 hard gate — real customer data was about to start flowing via ticket 4.3's billing loop, and the original gate was explicitly "before any real customer data exists") |
 | 2026-08-07 | Brand theme split | Customer-facing surfaces (landing + /signup + /login + /app) = dark illuminated/glass theme (Stakeholder-picked hero reference); internal /admin stays light-glass | One theme everywhere (admin re-skin adds no value; audiences differ) |
 | 2026-08-07 | G2 scope revision + Sprint 4 full unlock | Stripe/customer product/landing built ahead of outreach data — Stakeholder challenged PM's G2 dependency claim and won: product+billing are channel-independent; G2 now gates only outreach scaling decisions. Sprint 4 opens in parallel (WORKFLOW parallel rule) | Waiting for G2 data before billing (fails cost-benefit with idle cheap dev capacity; worst case is copy tweaks) |
 | 2026-08-06 | Sender persona | "Anna" kept as pen name (alias → Stakeholder inbox), risk of persona exposure at sales stage knowingly accepted | Send as Pedram (PM preference — declined); real second person (not available now) |

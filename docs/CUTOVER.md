@@ -1,10 +1,11 @@
 # CUTOVER.md — Private RDS + NAT + Secrets Manager hardening runbook
 
-> SPRINT_04.md ticket 4.4. **Status: BUILT AND REHEARSED. NOT EXECUTED.** No command in this
-> document has been run against production except the two explicitly marked "PRE-CREATED,
-> ALREADY DONE" — both inert (they don't touch any resource currently in the request path).
-> Everything else needs an explicit Stakeholder/PM "go" (see the NAT timing gate in
-> SPRINT_04.md's Stakeholder actions table) before it is executed for real, in this exact order.
+> SPRINT_04.md ticket 4.4. **Status: EXECUTED, 2026-08-07.** Stakeholder call: "GO NOW. Full
+> cutover today." Every step below (0 through 8) has been run against production, in this exact
+> order, each gated on its own verification before the next step ran. See PROGRESS.md's ticket
+> 4.4 row for the full execution log and the post-cutover checklist results. This document is
+> kept as the permanent record of what was done and as the rollback reference, not as a
+> pending-approval plan.
 
 ## 0. What this changes and why
 

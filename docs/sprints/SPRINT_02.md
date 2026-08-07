@@ -13,6 +13,13 @@
 
 ---
 
+## Prompt v1.2.1 (PM amendment 2026-08-07, off SPRINT_05.md ticket 5.1's live verification: added
+the third-language KROK 0 line — a live draft's organic Ukrainian-language review showed the model
+already generalizes past PL/EN correctly on its own, so this makes it an explicit rule with an
+explicit word budget rather than an accidental byproduct, before ticket 5.2 puts this prompt into
+unattended per-customer polling volume. Zero effect on PL/EN output — confirmed by the existing
+test suite. v1.2 note below unchanged.)
+
 ## Prompt v1.2 (PM — final mechanical pass. v1.1 findings: all 6 over-limit responses were EN (EN needs its own budget); unrequested salutation/signature blocks caused max_tokens truncation mid-word (leads 21, 22); one response denied the allegation ('Zapewniam, że...', lead 50). v1→v1.1 history: language matching fixed 6/12→12/12)
 
 System/user prompt template for claude-sonnet-5 (one call per lead, temperature default):
@@ -28,6 +35,8 @@ KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
 Recenzja po polsku → CAŁA odpowiedź wyłącznie po polsku (forma "Państwo"), 60–120 słów.
 Recenzja po angielsku → CAŁA odpowiedź wyłącznie po angielsku (uprzejmy, formalny ton),
 60–110 words (English runs longer — keep it tighter; 120 words is the hard limit).
+Recenzja w innym języku niż polski lub angielski → CAŁA odpowiedź w języku recenzji, limit słów
+jak dla polskiego.
 Nigdy nie mieszaj języków.
 
 Zasady (przestrzegaj WSZYSTKICH):

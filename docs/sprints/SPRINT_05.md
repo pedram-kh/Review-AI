@@ -101,12 +101,14 @@ _(none at open)_
 - Which real restaurant to connect for the milestone test (high review volume recommended)
 ```
 
-## Prompt v1.3 (positive-review thank-you variant — Cursor draft, 2026-08-07, pending PM read)
+## Prompt v1.3 (positive-review thank-you variant — Cursor draft, 2026-08-07, APPROVED by PM
+2026-08-07 with one amendment: the third-language KROK 0 line, added same-day, same wording/
+rationale as RESPONSE_PROMPT's v1.2->v1.2.1 bump in SPRINT_02.md. Stays "v1.3" per the PM's
+explicit instruction — added before ticket 5.2 puts this prompt into real per-customer polling
+volume ("pre-multiplication"), not as a post-launch tuning round.)
 
 LOGIC.md §8a: ratings >=4 get this instead of the negative RESPONSE_PROMPT (docs/sprints/SPRINT_02.md).
-Not yet PM-reviewed — flows through the normal ticket review cycle like every other deliverable,
-same as SPRINT_02.md's own v1/v1.1/v1.2 tuning rounds. `app/prompts.py`'s
-`POSITIVE_RESPONSE_PROMPT` must stay character-identical to the block below and
+`app/prompts.py`'s `POSITIVE_RESPONSE_PROMPT` must stay character-identical to the block below and
 `POSITIVE_PROMPT_VERSION` must match this heading — change only together
 (tests/test_prompts_positive.py enforces both, mirroring tests/test_prompts.py's SPRINT_02.md
 doc-parity checks for the negative prompt).
@@ -122,6 +124,8 @@ KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
 Recenzja po polsku → CAŁA odpowiedź wyłącznie po polsku (forma "Państwo"), 40–90 słów.
 Recenzja po angielsku → CAŁA odpowiedź wyłącznie po angielsku (uprzejmy, ciepły ton),
 40–80 words (English runs longer — keep it tighter; 90 words is the hard limit).
+Recenzja w innym języku niż polski lub angielski → CAŁA odpowiedź w języku recenzji, limit słów
+jak dla polskiego.
 Nigdy nie mieszaj języków.
 
 Zasady (przestrzegaj WSZYSTKICH):

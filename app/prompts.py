@@ -24,8 +24,13 @@ from datetime import datetime
 HEALTH_FLAG_MARKER = "HEALTH_FLAG"
 
 # Bumped by the PM after each tuning round; recorded in every generation batch review file so a
-# batch can always be traced back to the exact prompt that produced it.
-PROMPT_VERSION = "1.2"
+# batch can always be traced back to the exact prompt that produced it. 1.2 -> 1.2.1 (PM
+# amendment, 2026-08-07, off the back of ticket 5.1's live verification): added the third-language
+# KROK 0 line below — a live draft's organic Ukrainian-language review showed the model already
+# generalizes past PL/EN correctly, so this makes that behavior an explicit rule (with an explicit
+# word-count budget) rather than an accidental byproduct, before ticket 5.2 multiplies whatever the
+# prompt does across every connected customer.
+PROMPT_VERSION = "1.2.1"
 
 RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na recenzje Google
 profesjonalnie i z klasą. Napisz odpowiedź właściciela na poniższą recenzję.
@@ -37,6 +42,8 @@ KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
 Recenzja po polsku → CAŁA odpowiedź wyłącznie po polsku (forma "Państwo"), 60–120 słów.
 Recenzja po angielsku → CAŁA odpowiedź wyłącznie po angielsku (uprzejmy, formalny ton),
 60–110 words (English runs longer — keep it tighter; 120 words is the hard limit).
+Recenzja w innym języku niż polski lub angielski → CAŁA odpowiedź w języku recenzji, limit słów
+jak dla polskiego.
 Nigdy nie mieszaj języków.
 
 Zasady (przestrzegaj WSZYSTKICH):
@@ -61,6 +68,11 @@ HEALTH_FLAG_SUFFIX = "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zer
 # RESPONSE_PROMPT's apology-first one. Cursor draft (see module docstring) — mirrored in
 # docs/sprints/SPRINT_05.md "## Prompt v1.3" so tests/test_prompts.py can doc-pin it the same
 # way as RESPONSE_PROMPT, pending a PM read like every other ticket deliverable.
+# PM-APPROVED 2026-08-07 with one amendment (the third-language KROK 0 line below, same
+# wording/rationale as RESPONSE_PROMPT's 1.2->1.2.1 bump) — stays "1.3" per the PM's explicit
+# instruction: the line was added before ticket 5.2 puts this prompt into real per-customer
+# volume ("pre-multiplication"), not as a post-launch tuning round, so it doesn't warrant its own
+# version number the way RESPONSE_PROMPT's already-live v1.2 needed one for the same change.
 POSITIVE_PROMPT_VERSION = "1.3"
 
 POSITIVE_RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na pozytywne recenzje Google
@@ -73,6 +85,8 @@ KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
 Recenzja po polsku → CAŁA odpowiedź wyłącznie po polsku (forma "Państwo"), 40–90 słów.
 Recenzja po angielsku → CAŁA odpowiedź wyłącznie po angielsku (uprzejmy, ciepły ton),
 40–80 words (English runs longer — keep it tighter; 90 words is the hard limit).
+Recenzja w innym języku niż polski lub angielski → CAŁA odpowiedź w języku recenzji, limit słów
+jak dla polskiego.
 Nigdy nie mieszaj języków.
 
 Zasady (przestrzegaj WSZYSTKICH):

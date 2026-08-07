@@ -210,6 +210,7 @@ def run_day_one_for_customer(
                 customer_id=customer.customer_id,
                 review_id=review.review_id,
                 response_text=generated.text,
+                generation_stop_reason=generated.stop_reason,
                 is_urgent=is_urgent,
                 kind=DIGEST_KIND,
             )

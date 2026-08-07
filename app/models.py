@@ -130,6 +130,13 @@ class Alert(Base):
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.customer_id"))
     review_id: Mapped[str] = mapped_column(Text, ForeignKey("reviews.review_id"))
     response_text: Mapped[str] = mapped_column(Text)
+    # Anthropic stop_reason for the call that produced response_text ("end_turn", "max_tokens",
+    # ...). Same column, same rationale as leads.generation_stop_reason (ticket 2.2 Round 4):
+    # added retroactively 2026-08-07 after ticket 5.1's own live verification needed to answer
+    # "was this draft actually truncated?" for a real alert row and discovered System B had no
+    # way to say. Nullable because historical rows (5.1's live-verification batch) predate this
+    # column, same as leads.generation_stop_reason being NULL for the pre-Round-4 leads.
+    generation_stop_reason: Mapped[str | None] = mapped_column(Text)
     is_urgent: Mapped[bool] = mapped_column(Boolean)
     # values: digest (ticket 5.1 day-one) | alert (ticket 5.2 ongoing poll)
     kind: Mapped[str] = mapped_column(Text)

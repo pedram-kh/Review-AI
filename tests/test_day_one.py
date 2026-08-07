@@ -259,6 +259,27 @@ def test_second_run_is_idempotent_and_generates_nothing_new(
     mock_claude_cls.return_value.generate_customer_response.assert_not_called()
 
 
+@patch("app.jobs.day_one.ClaudeClient")
+def test_generation_stop_reason_is_persisted_on_the_alert(
+    mock_claude_cls: MagicMock, db_session
+) -> None:
+    # Added 2026-08-07 (PM amendment) after ticket 5.1's own live verification found alerts had no
+    # way to record this at all, unlike leads.generation_stop_reason (ticket 2.2 Round 4) — a real
+    # draft's punctuation-heuristic "truncated" flag couldn't be confirmed or ruled out as an
+    # actual max_tokens hit because nothing was stored.
+    _seed_place(db_session, fresh=True)
+    _seed_review(db_session, review_id="r1", rating=5, days_old=1)
+    customer = _seed_customer(db_session)
+    mock_claude_cls.return_value.generate_customer_response.return_value = GeneratedResponse(
+        text="Dziękujemy bardzo za miłe słowa, zapraszamy ponownie.", stop_reason="max_tokens"
+    )
+
+    run_day_one_for_customer(db_session, customer)
+
+    alert = db_session.query(Alert).filter_by(review_id="r1").one()
+    assert alert.generation_stop_reason == "max_tokens"
+
+
 @patch("app.jobs.day_one.enforce_call_cap")
 @patch("app.jobs.day_one.ClaudeClient")
 def test_cap_is_enforced_only_against_pending_not_already_alerted_reviews(

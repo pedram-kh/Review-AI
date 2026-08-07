@@ -146,6 +146,12 @@ class PlaceInfo(BaseModel):
     website: str | None
     fb_url: str | None
     email: str | None
+    # UAT-3 (3.4-UAT): place-level enrichment for the lead detail header.
+    rating: float | None
+    reviews_count: int | None
+    lat: float | None
+    lng: float | None
+    google_maps_url: str | None
 
 
 class ReviewInfo(BaseModel):
@@ -294,6 +300,11 @@ def _load_lead_detail(session: Session, lead_id: int) -> LeadDetail:
             website=place.website,
             fb_url=place.fb_url,
             email=place.email,
+            rating=place.rating,
+            reviews_count=place.reviews_count,
+            lat=place.lat,
+            lng=place.lng,
+            google_maps_url=place.google_maps_url,
         ),
         review=ReviewInfo(
             review_id=review.review_id,

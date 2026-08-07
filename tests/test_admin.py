@@ -32,6 +32,11 @@ def seed_lead(db_session, **overrides) -> Lead:
         website=overrides.pop("website", None),
         fb_url=overrides.pop("fb_url", None),
         email=overrides.pop("email", None),
+        rating=overrides.pop("place_rating", None),
+        reviews_count=overrides.pop("reviews_count", None),
+        lat=overrides.pop("lat", None),
+        lng=overrides.pop("lng", None),
+        google_maps_url=overrides.pop("google_maps_url", None),
     )
     review = Review(
         review_id=overrides.pop("review_id", f"review-{n}"),
@@ -231,6 +236,42 @@ def test_get_lead_detail_returns_the_full_join(db_session) -> None:
     assert body["review"]["rating"] == 1
     assert body["review"]["text"] == "Very rude staff."
     assert body["place"]["website"] == "https://uno.pl"
+
+
+@with_admin_key
+def test_get_lead_detail_includes_place_enrichment_fields(db_session) -> None:
+    """UAT-3 (3.4-UAT): rating/reviews_count/lat/lng/google_maps_url for the lead detail
+    header's star rating, review count, and "Open in Google Maps" link."""
+    lead = seed_lead(
+        db_session,
+        place_name="Zapiecek",
+        place_rating=4.4,
+        reviews_count=9429,
+        lat=52.2365682,
+        lng=21.018275,
+        google_maps_url="https://www.google.com/maps/place/Zapiecek",
+    )
+
+    body = client.get(f"/api/admin/leads/{lead.lead_id}", headers=HEADERS).json()
+
+    assert body["place"]["rating"] == 4.4
+    assert body["place"]["reviews_count"] == 9429
+    assert body["place"]["lat"] == 52.2365682
+    assert body["place"]["lng"] == 21.018275
+    assert body["place"]["google_maps_url"] == "https://www.google.com/maps/place/Zapiecek"
+
+
+@with_admin_key
+def test_get_lead_detail_enrichment_fields_null_when_place_unenriched(db_session) -> None:
+    """A place discovered before ticket 3.4-UAT (or never re-polled) has no enrichment yet —
+    the API must return null rather than erroring or defaulting to 0."""
+    lead = seed_lead(db_session)
+
+    body = client.get(f"/api/admin/leads/{lead.lead_id}", headers=HEADERS).json()
+
+    assert body["place"]["rating"] is None
+    assert body["place"]["reviews_count"] is None
+    assert body["place"]["google_maps_url"] is None
 
 
 @with_admin_key

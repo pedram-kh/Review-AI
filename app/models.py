@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -20,6 +20,12 @@ class Place(Base):
     fb_url: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(Text)
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # UAT-3 (3.4-UAT): place-level enrichment shown in the lead detail header.
+    rating: Mapped[float | None] = mapped_column(Float)
+    reviews_count: Mapped[int | None] = mapped_column(Integer)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    google_maps_url: Mapped[str | None] = mapped_column(Text)
 
 
 class Review(Base):

@@ -59,6 +59,14 @@ def upsert_places(session: Session, raw_places: list[dict], city: str) -> tuple[
             "city": city,
             "phone": raw.get("phone"),
             "website": raw.get("website"),
+            # UAT-3 (3.4-UAT): re-confirmed live 2026-08-06 — Outscraper's fields are
+            # "rating"/"reviews"/"latitude"/"longitude"/"location_link" (there is no field
+            # literally named "google_maps_url"; location_link IS that direct maps URL).
+            "rating": raw.get("rating"),
+            "reviews_count": raw.get("reviews"),
+            "lat": raw.get("latitude"),
+            "lng": raw.get("longitude"),
+            "google_maps_url": raw.get("location_link"),
         }
         stmt = (
             pg_insert(Place)

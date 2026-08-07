@@ -39,6 +39,38 @@ def test_upsert_places_counts_insert_and_update() -> None:
     assert session.execute.call_count == 3
 
 
+def test_upsert_places_maps_enrichment_fields() -> None:
+    """UAT-3 (3.4-UAT): rating/reviews_count/lat/lng/google_maps_url come from Outscraper's
+    "rating"/"reviews"/"latitude"/"longitude"/"location_link" fields — confirmed live 2026-08-06
+    (Outscraper has no field literally named "google_maps_url")."""
+    session = MagicMock()
+    session.execute.side_effect = [[], None]
+
+    raw_places = [
+        {
+            "place_id": "p1",
+            "name": "A",
+            "address": "addr1",
+            "phone": "1",
+            "website": "http://a",
+            "rating": 4.5,
+            "reviews": 120,
+            "latitude": 52.1,
+            "longitude": 21.0,
+            "location_link": "https://www.google.com/maps/place/A",
+        }
+    ]
+    upsert_places(session, raw_places, city="Warszawa")
+
+    insert_stmt = session.execute.call_args_list[1].args[0]
+    params = insert_stmt.compile().params
+    assert params["rating"] == 4.5
+    assert params["reviews_count"] == 120
+    assert params["lat"] == 52.1
+    assert params["lng"] == 21.0
+    assert params["google_maps_url"] == "https://www.google.com/maps/place/A"
+
+
 def test_upsert_places_skips_records_without_place_id() -> None:
     session = MagicMock()
     session.execute.side_effect = [[]]

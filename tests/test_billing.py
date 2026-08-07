@@ -118,6 +118,50 @@ def test_checkout_creates_stripe_customer_and_session(db_session, billing_settin
     assert customer.stripe_customer_id == "cus_new123"
 
 
+@pytest.mark.parametrize("status", ["trialing", "active"])
+def test_checkout_409_when_already_subscribed(db_session, billing_settings, status) -> None:
+    customer = _seed_customer(
+        db_session, email="already-subscribed@example.com", stripe_customer_id="cus_existing"
+    )
+    customer.subscription_status = status
+    db_session.commit()
+
+    with (
+        patch("stripe.Customer.create") as mock_customer_create,
+        patch("stripe.checkout.Session.create") as mock_checkout_create,
+    ):
+        response = client.post(
+            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+        )
+
+    assert response.status_code == 409
+    mock_customer_create.assert_not_called()
+    mock_checkout_create.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["none", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired", "paused"],
+)
+def test_checkout_allowed_for_non_active_statuses(db_session, billing_settings, status) -> None:
+    customer = _seed_customer(db_session, email=f"status-{status}@example.com")
+    customer.subscription_status = status
+    db_session.commit()
+
+    with (
+        patch("stripe.Customer.create") as mock_customer_create,
+        patch("stripe.checkout.Session.create") as mock_checkout_create,
+    ):
+        mock_customer_create.return_value = MagicMock(id="cus_x")
+        mock_checkout_create.return_value = MagicMock(url="https://checkout.stripe.com/x")
+
+        response = client.post(
+            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+        )
+
+    assert response.status_code == 200
+
+
 def test_checkout_reuses_existing_stripe_customer_id(db_session, billing_settings) -> None:
     customer = _seed_customer(
         db_session, email="already-has-stripe@example.com", stripe_customer_id="cus_existing"

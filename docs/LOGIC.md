@@ -109,6 +109,14 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 - **Polling:** every 2 hours, 08:00–23:00 Europe/Warsaw, per connected customer with status
   trialing/active. Nothing polls outside those hours or for other statuses.
+  - **Infra note (ticket 5.2):** the actual trigger is a classic EventBridge Rule on a UTC cron
+    (`cron(0 6-21/2 * * ? *)`), not EventBridge Scheduler — Scheduler cannot directly target an
+    API destination (AWS limitation, discovered during 5.2 build), and only classic Rules can.
+    Classic Rules have no timezone parameter, so the cron is UTC-only: CEST (summer, UTC+2) lines
+    up exactly with 08–23 Warsaw; CET (winter, UTC+1) shifts the two edge ticks by an hour. The
+    app's own `is_within_poll_window()` re-checks real `Europe/Warsaw` time on every invocation, so
+    a mistimed edge tick near a DST transition is skipped cleanly (no wrong-hour spend) rather than
+    executed at the wrong local hour — accepted trade-off, Stakeholder + PM 2026-08-08.
 - **Alert scope:** EVERY new review gets a response draft. Urgency flag: rating ≤3 → "PILNE"
   styling + subject prefix. Positive reviews (≥4) get a thank-you variant draft (§7 rules apply;
   structure swaps apology→thanks; 40–90 words).
@@ -133,6 +141,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-08 | §8a polling bullet: infra note added — classic EventBridge Rule + UTC cron (Scheduler can't target API destinations), code-enforced Warsaw window covers DST edge ticks — accepted | Stakeholder + PM |
 | 2026-08-07 | §8a added (Sprint 5 planning): customer polling 2h/08–23, all-reviews drafts with urgency flags + positive variant, 2-godziny promise wording fix, day-one digest, per-run caps | Stakeholder + PM |
 | 2026-08-06 | §7b: Anna confirmed as pen name (alias of Stakeholder inbox) — option C chosen with risk accepted; PM's disclosure obligation discharged | Stakeholder |
 | 2026-08-06 | §3 amendment: dead reachable from ANY status except converted (manual skip with required note). Raised by ticket 3.1 — original diagram only modeled post-send death | Stakeholder + PM |

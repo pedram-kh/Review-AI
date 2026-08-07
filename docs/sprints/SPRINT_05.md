@@ -54,6 +54,12 @@ In-code time-window guard tested. Update row 5.2.
 
 **Done when:** `/app` (dark theme) grows: connect-restaurant flow (search box with live results + "wklej link" fallback; confirmation card with name/address/rating before connect), post-connect home showing: connected restaurant card, last-checked time, recent alerts list (review + draft + Copy button + "PILNE" badge on urgent), settings (notification email default = login email, editable; tone preference formal/friendly feeding the prompt), Stripe portal link. Empty states written in PL for: not connected, no alerts yet.
 
+**Amendment (Stakeholder finding, live walkthrough 2026-08-08):** `app.reviewguide.eu/` served the
+old bare "internal dashboard, see /admin" placeholder from before this app had a customer-facing
+audience. Fixed ahead of the rest of 5.3 (one route, no dependency on the panel work below): `/`
+now redirects → `/app` if the session cookie is valid, else → `/login` (`middleware.ts`, same
+session-verification helper the `/app` gate already uses).
+
 **Cursor prompt:**
 ```
 Ticket 5.3 per spec against 5.1/5.2's endpoints (add the needed GET endpoints for alerts list +
@@ -78,6 +84,20 @@ the rendered emails before 5.5.
 ## Ticket 5.5 — Milestone: the product works end-to-end
 
 **Done when:** on the STAKEHOLDER-TEST account (or a fresh test signup), Stakeholder connects a real Warsaw restaurant via the panel on his phone → welcome digest arrives with real drafts → then a genuinely new review appearing on that restaurant is caught by a scheduled (not manually-triggered) 2h run → alert email arrives, correctly urgent/normal → the draft is paste-ready. Evidence: EventBridge invocation log + Postmark + alerts row + Stakeholder confirmation. (If no organic new review appears within the sprint on the chosen restaurant, pick a high-volume place — McDonald's-class — where one lands within hours.)
+
+## Ticket 5.6 — Admin: customers view (pulled from BACKLOG by Stakeholder, 2026-08-07)
+
+**Done when:** `/admin/customers` (light-glass admin theme, existing basic-auth + admin-key path — NOT customer session auth): list of all customers (email, restaurant name or "—", subscription_status badge, connected_at, last alert time), row click → detail: customer info, connected place card, full alert history (review snippet, draft, is_urgent, sent_at, stop_reason), and health signals (last poll outcome for their place, Postmark delivery status of last 5 alerts via message IDs). Backend: `GET /api/admin/customers` + `GET /api/admin/customers/{id}` behind X-Admin-Key. Read-only in v1 — no editing customers from admin.
+
+**Cursor prompt:**
+```
+Ticket 5.6 per SPRINT_05.md spec. Backend: the two admin endpoints (X-Admin-Key, same router as
+leads admin), joining customers→places→alerts; Postmark delivery status via their messages API
+for the last 5 alert message IDs (cache per request, degrade gracefully if Postmark errors).
+Frontend: /admin/customers list + detail per spec, light-glass, nav link added next to
+Leads/Replies. Read-only. Tests: auth 401, joins with/without connected place, empty states.
+Live-verify against the real STAKEHOLDER-TEST customer. Update row 5.6 in PROGRESS.md.
+```
 
 ---
 

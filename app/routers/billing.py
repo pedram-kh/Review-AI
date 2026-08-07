@@ -35,6 +35,16 @@ router = APIRouter(prefix="/api/billing", tags=["billing"])
 # keep in sync with it.
 _DELETED_STATUS = "none"
 
+# Statuses that already mean "a real Stripe subscription exists" — creating another Checkout
+# Session for one of these would create a genuine second subscription in Stripe (Stripe allows
+# multiple subscriptions per customer by default; nothing about a second Checkout Session
+# implicitly replaces the first). Found live 2026-08-08: Stakeholder's walkthrough of
+# app.reviewguide.eu hit this exact path (stale /app page + a second "Rozpocznij okres próbny"
+# click), landing a duplicate test-mode subscription on the STAKEHOLDER-TEST Stripe customer.
+# Scoped to trialing/active only, per that finding — past_due/unpaid/incomplete/canceled are a
+# judgment call for a future ticket, not silently folded in here.
+_ALREADY_SUBSCRIBED_STATUSES = ("trialing", "active")
+
 
 def _require_stripe_configured() -> None:
     # Fail with a clear, actionable error rather than letting the Stripe SDK raise its own
@@ -74,6 +84,11 @@ def create_checkout_session(
     _require_stripe_configured()
     if not settings.stripe_price_id:
         raise HTTPException(status_code=503, detail="Billing is not configured yet (no price).")
+    if customer.subscription_status in _ALREADY_SUBSCRIBED_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="Masz już aktywną subskrypcję — zarządzaj nią w portalu klienta.",
+        )
 
     stripe_customer_id = _get_or_create_stripe_customer(customer, session)
 

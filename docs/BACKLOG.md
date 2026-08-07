@@ -9,6 +9,7 @@
 |---|---|---|
 | **Sprint 4 hardening batch (COMMITTED, not optional):** RDS → private subnets + VPC connector + NAT; remove 0.0.0.0/0 rule; move secrets to Secrets Manager + App Runner instance role | Ticket 0.5 networking decision (2026-08-05) | **Sprint 4 start — hard gate before first customer data** |
 | **Pipeline ops in admin panel** (scoped per Stakeholder 2026-08-05): "Run pipeline now" button (district picker, live progress), polling schedule on/off + frequency config, cost-cap editing, per-run spend history. Requires real auth (Sprint 4) before any money-spending buttons exist in UI | Sprint 1 planning idea, expanded in Sprint 2 planning chat | Sprint 6 or right after |
+| **Remove the 4.5 milestone test data before the first real customer onboards:** the `customers` row for `pedram@defraged.com` (`stripe_customer_id` `cus_V1onnk07RzXhpE`) and its TEST-mode Stripe subscription `sub_1U1lAXIDs1qO8e1Tnp2yfvlA`. Retained deliberately as ticket 4.5's evidence; flagged only in PROGRESS.md since `customers` has no notes column | Ticket 4.5 walkthrough (2026-08-07) | **Before first real signup** |
 | Outreach follow-up sequences (2nd touch) | LOGIC.md v1 outreach constraints | After G2 |
 | Auto-post responses via Google Business Profile API ("Approve & post" in email) | Product plan | After G4 (10 paying customers) |
 | WhatsApp delivery of alerts | Product plan | Post-launch |

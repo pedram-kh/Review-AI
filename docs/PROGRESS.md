@@ -107,6 +107,31 @@ _(none yet)_
   3.4-UAT subsection above. Backend migration 003 applied to the live DB and the srodmiescie
   discovery backfill re-run live ($2.09 actual). 192/192 backend tests pass; frontend
   `tsc`/`lint` clean throughout. Standing by for Stakeholder confirmation.
+- 2026-08-07: Stakeholder-directed "UI polish round 2" session on `reviewguide-app` (styling/layout
+  only, no PM ticket) — see the 3.4-UAT subsection above for the itemized change list. Committed
+  and deployed; live site confirmed serving the new build.
+
+---
+
+## Current sprint: SPRINT 4 — Product Foundation (parallel with ⏸ 2.4/2.5, ⏸ 3.5)
+
+| # | Ticket | Status | Files touched | Cursor notes | PM verdict |
+|---|---|---|---|---|---|
+| 4.1 | Marketing repo + landing (PL) | ⬜ | | | |
+| 4.2 | Magic-link auth + customers table | ⬜ | | | |
+| 4.3 | Stripe test-mode billing loop | ⬜ | | | |
+| 4.4 | Hardening build + CUTOVER.md (no prod exec) | ⬜ | | | |
+| 4.5 | End-to-end milestone (landing→trialing) | ⬜ | | | |
+
+### Sprint 4 blockers
+_(none at open — Stakeholder actions table gates 4.2/4.3 mid-ticket)_
+
+### Sprint 4 open questions for Stakeholder
+- Postmark account + mail.reviewguide.eu DNS (gates 4.2)
+- Stripe account (gates 4.3)
+- G3: launch price (129 zł placeholder live until decided)
+- NAT timing: cutover now or launch week (gates 4.4 execution)
+- Create empty GitHub repo reviewguide-marketing (gates 4.1 push)
 
 ---
 

@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # The test-mode Price object for the single "ReviewGuide" plan (129 zł/mies placeholder per
     # SPRINT_04.md's Stakeholder actions table, pending the G3 pricing call).
     stripe_price_id: str = ""
+    # SPRINT_05.md ticket 5.2. Compared (constant-time) against the X-Job-Key header on
+    # POST /api/jobs/poll-customers — the same "shared-secret header, never reaches a browser"
+    # posture as admin_api_key, but this one is presented by EventBridge Scheduler's API
+    # destination rather than the Next.js dashboard's server.
+    job_api_key: str = ""
 
 
 def _load_settings() -> Settings:

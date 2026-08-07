@@ -123,3 +123,51 @@ def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str]:
         "Skopiuj wybraną odpowiedź i wklej ją w Profilu Firmy Google."
     )
     return subject, body
+
+
+# --- Alert email (SPRINT_05.md ticket 5.2's ongoing 2h-cycle poller) ----------------------------
+#
+# DRAFT COPY ONLY — not PM/Stakeholder-reviewed, same gate pattern and same reason as
+# WELCOME_DIGEST_APPROVED_ON above: ticket 5.4 owns the finalized alert-email template ("Done
+# when: two Postmark templates in code... (a) alert"). While ALERT_EMAIL_APPROVED_ON is None,
+# app/jobs/poll_customers.py composes and logs the alert via postmark_client's own
+# POSTMARK_TOKEN-unset path (never calls send_email), so ticket 5.2's polling/idempotency/cap
+# logic is fully functional and testable today without risking unpolished copy reaching a real
+# inbox before 5.4 reviews it.
+ALERT_EMAIL_APPROVED_ON: str | None = None
+
+
+def render_alert_email(
+    *,
+    place_name: str | None,
+    rating: int | None,
+    review_text: str,
+    response_text: str,
+    is_urgent: bool,
+    health_flagged: bool,
+) -> tuple[str, str]:
+    """(subject, body) for one new-review alert (ticket 5.2 — one email per newly-detected
+    review, unlike the day-one digest's one-email-with-many-drafts). Subject mirrors
+    SPRINT_05.md ticket 5.4's spec text: normal "Nowa opinia (X★) — gotowa odpowiedź", urgent
+    "PILNE: Nowa opinia 1★ — odpowiedz dziś"."""
+    rating_display = rating if rating is not None else UNKNOWN_RATING
+    if is_urgent:
+        subject = f"[SZKIC] PILNE: Nowa opinia {rating_display}★ — odpowiedz dziś"
+    else:
+        subject = f"[SZKIC] Nowa opinia ({rating_display}★) — gotowa odpowiedź"
+
+    health_line = (
+        "\n\nUWAGA: ta recenzja dotyczy bezpieczeństwa żywności — sprawdź odpowiedź przed "
+        "publikacją."
+        if health_flagged
+        else ""
+    )
+    body = (
+        f"Cześć,\n\n"
+        f"{place_name or 'Twoja restauracja'} otrzymała nową opinię ({rating_display}/5):\n\n"
+        f"Recenzja:\n{review_text.strip()}\n\n"
+        f"Gotowa odpowiedź (kopiuj-wklej):\n{response_text.strip()}"
+        f"{health_line}\n\n"
+        "Skopiuj odpowiedź i wklej ją w Profilu Firmy Google."
+    )
+    return subject, body

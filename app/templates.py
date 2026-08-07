@@ -31,9 +31,9 @@ Przygotowałam dla Państwa gotową, profesjonalną odpowiedź — mogą jej Pa�
 
 Wystarczy skopiować i wkleić w Profilu Firmy Google.
 
-Na co dzień robię to automatycznie: monitoruję recenzje 24/7 i wysyłam gotowe odpowiedzi na każdą
-nową opinię w ciągu godziny. Jeśli chcieliby Państwo przetestować (14 dni bezpłatnie), wystarczy
-odpowiedzieć na tę wiadomość.
+Na co dzień robię to automatycznie: monitoruję recenzje i wysyłam gotowe odpowiedzi na każdą
+nową opinię w ciągu maksymalnie 2 godzin. Jeśli chcieliby Państwo przetestować (14 dni bezpłatnie),
+wystarczy odpowiedzieć na tę wiadomość.
 
 Pozdrawiam serdecznie,
 Anna

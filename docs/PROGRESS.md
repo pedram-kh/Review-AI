@@ -158,6 +158,24 @@ _(none at open — Stakeholder actions table gated 4.2/4.3 mid-ticket; all clear
 
 ---
 
+## Current sprint: SPRINT 5 — Value Delivery (parallel with ⏸ 2.4/2.5, ⏸ 3.5)
+
+| # | Ticket | Status | Files touched | Cursor notes | PM verdict |
+|---|---|---|---|---|---|
+| 5.1 | Connect flow + day-one value | ⬜ | | | |
+| 5.2 | Polling engine + EventBridge | ⬜ | | | |
+| 5.3 | Customer panel expansion | ⬜ | | | |
+| 5.4 | Alert + digest emails (PL) + promise-wording fix | ⬜ | | | |
+| 5.5 | Milestone: scheduled alert lands on Stakeholder's phone | ⬜ | | | |
+
+### Sprint 5 blockers
+_(none at open)_
+
+### Sprint 5 open questions for Stakeholder
+- Which real restaurant to connect for the milestone test (high review volume recommended)
+
+---
+
 ## Review cycle log
 
 | Date | Cycle | What was reviewed | Outcome | Follow-ups |

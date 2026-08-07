@@ -105,6 +105,22 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 - Sender identity: "Anna" — pen name; anna@reviewguide.eu is an alias of the Stakeholder's inbox, all replies answered personally and fast. Stakeholder-accepted risk (2026-08-06): persona may be exposed at call/invoice/meeting stage; decision to be revisited if it costs a conversion
 - Health-flagged leads: never auto-assembled into outreach (§2, §6)
 
+## 8a. Customer product rules (System B, v1 — Sprint 5)
+
+- **Polling:** every 2 hours, 08:00–23:00 Europe/Warsaw, per connected customer with status
+  trialing/active. Nothing polls outside those hours or for other statuses.
+- **Alert scope:** EVERY new review gets a response draft. Urgency flag: rating ≤3 → "PILNE"
+  styling + subject prefix. Positive reviews (≥4) get a thank-you variant draft (§7 rules apply;
+  structure swaps apology→thanks; 40–90 words).
+- **Public promise wording:** "w ciągu maksymalnie 2 godzin" (NOT "w ciągu godziny") — landing,
+  outreach template, and alert emails must all match the real cycle.
+- **Day-one value:** on connect, generate drafts for the customer's existing recent reviews and
+  send a welcome digest immediately.
+- **Caps:** per poll-run: ≤10 review records/customer, ≤500 records total, ≤100 Claude calls;
+  abort over cap. Per-customer alert emails: ≤10/day (anti-runaway).
+- **Health-flag rule carries over:** flagged drafts marked "sprawdź przed publikacją" in the
+  alert email, never auto-posted anywhere (nothing auto-posts in v1 anyway).
+
 ## 8. Sweep scope (current)
 
 - **Active sweep: Warsaw / Śródmieście pilot** (~600–800 restaurants expected, ~$25 budget)
@@ -117,6 +133,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-07 | §8a added (Sprint 5 planning): customer polling 2h/08–23, all-reviews drafts with urgency flags + positive variant, 2-godziny promise wording fix, day-one digest, per-run caps | Stakeholder + PM |
 | 2026-08-06 | §7b: Anna confirmed as pen name (alias of Stakeholder inbox) — option C chosen with risk accepted; PM's disclosure obligation discharged | Stakeholder |
 | 2026-08-06 | §3 amendment: dead reachable from ANY status except converted (manual skip with required note). Raised by ticket 3.1 — original diagram only modeled post-send death | Stakeholder + PM |
 | 2026-08-06 | §6: sending order = manual daily pick by Stakeholder (dashboard default sort newest-first); Sprint 3 planning | Stakeholder + PM |

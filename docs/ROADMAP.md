@@ -50,8 +50,8 @@ pointed at paying customers' profiles.
 | 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ✅ Closed (213 leads) |
 | 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | 🟡 2.4/2.5 ⏸ external-gated |
 | 3 | 1 week | Internal dashboard + outreach starts | First 10–20 sends via dashboard; reply tracking live | 🔵 ACTIVE (parallel) |
-| 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | ✅ Closed (1 day; milestone in 96s on Stakeholder's device — cutover **executed**, not just rehearsed) |
-| 5 | 1 week | Value delivery (launch) | New review on test restaurant → correct alert email arrives | ⚪ Planned |
+| 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | 🔵 ACTIVE (parallel) |
+| 5 | 1 week | Value delivery (launch) | Connected test restaurant → day-one digest + 2h-cycle alert email with paste-ready response | 🔵 ACTIVE |
 | 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | ⚪ Planned |
 
 ## 4. Decision gates ⚠️
@@ -60,14 +60,15 @@ pointed at paying customers' profiles.
 |---|---|---|---|
 | G1 | Sprint 0 | Which city? | ✅ **DECIDED: Warsaw, multi-district.** Sweep 1 = central districts (Śródmieście, Mokotów, Wola, Praga-Płd., Żoliborz ≈ 1,800–2,200 restaurants, ~$70). Expand outward when sending capacity allows. |
 | G2 | End of Sprint 3 | Reply rate ≥ ~3–5% and any positive interest? If NO → Sprint 4 becomes "fix funnel", not billing | Stakeholder + PM |
-| G3 | End of Sprint 4 | Final price point (99 / 129 / 149 zł) | Stakeholder |
+| G3 | End of Sprint 4 | Final price point | ✅ **DECIDED 2026-08-07: 129 zł/mies** (ratified by Stakeholder) |
 | G4 | 10 paying customers | Automate posting via Google Business Profile API? Second city? Hotels? | Stakeholder + PM |
 
 ## 4b. Decisions log (what was chosen and why — newest first)
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
-| 2026-08-07 | NAT gate: executed | Stakeholder call ("GO NOW. Full cutover today."): full CUTOVER.md runbook (private RDS + NAT Gateway + Secrets Manager + App Runner instance role + SSM bastion bridge) executed same day against production, all 9 steps gated and green, zero customer-facing downtime, ~$37/mo added | Waiting for launch week (delays the Sprint 0 hard gate — real customer data was about to start flowing via ticket 4.3's billing loop, and the original gate was explicitly "before any real customer data exists") |
+| 2026-08-07 | Sprint 5 scope (opened ahead of reviewer, same channel-independence logic as Sprint 4) | Polling 2h/08–23 (~$3.60/mo/customer); ALL reviews get drafts (negatives urgent, positives thank-you variant); connect via name-search + link fallback; promise wording fixed to "maks. 2 godzin" everywhere | Hourly 08–23 (~$7/mo — Stakeholder chose margin over headline), 24/7 (alerts at 4am help no one), negatives-only (product that only brings bad news), paste-link-only (setup friction) |
+| 2026-08-07 | G3 launch price | 129 zł/mies ratified (already live on landing + Stripe test product; mid-range, premium-but-trivial vs one lost customer) | 99 zł (undervalues, volume play premature), 149 zł (friction before social proof exists), defer (price was already public — deferral = deciding by accident) |
 | 2026-08-07 | Brand theme split | Customer-facing surfaces (landing + /signup + /login + /app) = dark illuminated/glass theme (Stakeholder-picked hero reference); internal /admin stays light-glass | One theme everywhere (admin re-skin adds no value; audiences differ) |
 | 2026-08-07 | G2 scope revision + Sprint 4 full unlock | Stripe/customer product/landing built ahead of outreach data — Stakeholder challenged PM's G2 dependency claim and won: product+billing are channel-independent; G2 now gates only outreach scaling decisions. Sprint 4 opens in parallel (WORKFLOW parallel rule) | Waiting for G2 data before billing (fails cost-benefit with idle cheap dev capacity; worst case is copy tweaks) |
 | 2026-08-06 | Sender persona | "Anna" kept as pen name (alias → Stakeholder inbox), risk of persona exposure at sales stage knowingly accepted | Send as Pedram (PM preference — declined); real second person (not available now) |

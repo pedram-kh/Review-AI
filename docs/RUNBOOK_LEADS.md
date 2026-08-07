@@ -26,6 +26,26 @@ close to when you'll actually send.
 
 ## 2. Scenario A — re-sweep a district you already cover
 
+> **Prerequisite since 2026-08-07:** the database is no longer reachable directly — it moved
+> behind a private VPC as part of the security hardening cutover (see `CUTOVER.md`). Before
+> running **any** command below, open a bastion tunnel in its own terminal and leave it running
+> for the whole session:
+>
+> ```bash
+> aws ssm start-session --region eu-west-1 --target i-0db2ab990c2c8a354 \
+>   --document-name AWS-StartPortForwardingSessionToRemoteHost \
+>   --parameters '{"host":["reviewpilot-db.cpsukkwcomk6.eu-west-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
+> ```
+>
+> Then, in a second terminal, override `DATABASE_URL` before running any job below (same
+> credentials as `.env` — only host/port change):
+>
+> ```bash
+> export DATABASE_URL="postgresql://reviewpilot:<same-password-as-.env>@localhost:15432/reviewpilot?sslmode=require"
+> ```
+>
+> Every command in this document is otherwise unchanged — this is the only new step.
+
 Fresh negatives appear constantly (~9 reviews/restaurant/month, ~82% of negatives unanswered).
 
 ```
@@ -104,4 +124,5 @@ at a sprint boundary; mechanically it's Scenario B with a new city's districts.
 
 | Date | Change |
 |---|---|
+| 2026-08-07 | Bastion tunnel prerequisite added ahead of Scenario A/B commands — RDS went private as part of the ticket 4.4 security cutover, so direct DB access now requires the SSM bastion bridge documented in `CUTOVER.md` §Step 0 |
 | 2026-08-07 | v1 created (Stakeholder request during Sprint 3 UAT) |

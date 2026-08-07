@@ -148,10 +148,13 @@ _(none at open — Stakeholder actions table gated 4.2/4.3 mid-ticket; all clear
   ticket 4.4 notes above.
 - ~~Create empty GitHub repo reviewguide-marketing (gates 4.1 push)~~ — **done 2026-08-07**, repo
   live and deployed.
-- **STILL OPEN — `reviewguide-marketing` push-to-deploy** (ticket 4.1): the Netlify GitHub App
-  lacks repository access, so marketing-site pushes do not auto-build and need a manual deploy
-  command. ~1-minute Stakeholder action, documented in that repo's README. Blocks nothing shipped,
-  but it will silently make a future landing-page edit look deployed when it isn't.
+- ~~STILL OPEN — `reviewguide-marketing` push-to-deploy (ticket 4.1)~~ — **RESOLVED 2026-08-07.**
+  Stakeholder granted the Netlify GitHub App repository access. Verified with two empty-commit
+  pushes: the first (`dafad1e`, before the grant) triggered **no** deploy after a 5-minute poll,
+  confirming the gap was real and not a timing fluke; the second (`4878a68`, after the grant)
+  auto-triggered deploy `6a75bf66f5ef4c0008b65add` within seconds — `commit_ref` matches exactly,
+  `state: ready`, published 23s after creation, and `reviewguide.eu` serves 200 with that content
+  live. Push-to-deploy on `reviewguide-marketing` now works exactly like `reviewguide-app`'s.
 
 ---
 

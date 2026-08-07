@@ -39,3 +39,18 @@ def create_session_token(customer_id: int, email: str) -> str:
         "exp": int((now + SESSION_TTL).timestamp()),
     }
     return jwt.encode(payload, settings.auth_jwt_secret, algorithm=JWT_ALGORITHM)
+
+
+def decode_session_token(token: str) -> int:
+    """Verifies a session JWT's signature/expiry and returns the customer_id it was issued for
+    (SPRINT_04.md ticket 4.3's billing endpoints). This is the backend's own independent check —
+    reviewguide-app's server already verifies the same JWT before ever calling the backend
+    (lib/session.ts), but the backend re-verifying it rather than trusting an unauthenticated
+    "customer_id" the caller could otherwise just claim in the request body is the same "don't
+    trust the frontend, verify server-side" posture as ticket 4.2's /app page re-checking its own
+    session cookie despite middleware already having done so.
+
+    Raises jwt.PyJWTError (caller maps it to 401) on any invalid/expired/malformed token.
+    """
+    payload = jwt.decode(token, settings.auth_jwt_secret, algorithms=[JWT_ALGORITHM])
+    return int(payload["sub"])

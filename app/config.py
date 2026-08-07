@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     # session cookie locally in middleware without a round trip to the backend per page load —
     # same shared-secret pattern as ADMIN_API_KEY between the two repos.
     auth_jwt_secret: str = ""
+    # SPRINT_04.md ticket 4.3, TEST MODE ONLY (Rule 2) — left unset until the Stakeholder's
+    # Stripe account exists, same "empty = feature quietly unavailable, not a crash" posture as
+    # postmark_token above. app/routers/billing.py's checkout/portal endpoints 503 while empty.
+    stripe_secret_key: str = ""
+    # Verifies the signature on inbound Stripe webhook events (app/routers/billing.py) — without
+    # this, POST /api/billing/webhook rejects everything rather than trusting an unverified body.
+    stripe_webhook_secret: str = ""
+    # The test-mode Price object for the single "ReviewGuide" plan (129 zł/mies placeholder per
+    # SPRINT_04.md's Stakeholder actions table, pending the G3 pricing call).
+    stripe_price_id: str = ""
 
 
 def _load_settings() -> Settings:

@@ -62,6 +62,7 @@
   WORKFLOW.md          ← this file (how we work)
   ROADMAP.md           ← full picture: product, phases, sprint plan, gates
   LOGIC.md             ← canonical business rules (qualification, caps, lifecycle) — code must match
+  RUNBOOK_LEADS.md     ← operations guide: refilling the lead pipeline (re-sweeps, new districts)
   PROGRESS.md          ← living log: done / in progress / remaining / blockers / PM verdicts
   BACKLOG.md           ← parked ideas, reviewed at sprint boundaries
   /sprints

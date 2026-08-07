@@ -50,7 +50,7 @@ pointed at paying customers' profiles.
 | 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ✅ Closed (213 leads) |
 | 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | 🟡 2.4/2.5 ⏸ external-gated |
 | 3 | 1 week | Internal dashboard + outreach starts | First 10–20 sends via dashboard; reply tracking live | 🔵 ACTIVE (parallel) |
-| 4 | 1 week | Landing + signup + Stripe | Stranger can reach trial-active account with restaurant connected | ⚪ Planned |
+| 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | 🔵 ACTIVE (parallel) |
 | 5 | 1 week | Value delivery (launch) | New review on test restaurant → correct alert email arrives | ⚪ Planned |
 | 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | ⚪ Planned |
 
@@ -67,6 +67,8 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-07 | Brand theme split | Customer-facing surfaces (landing + /signup + /login + /app) = dark illuminated/glass theme (Stakeholder-picked hero reference); internal /admin stays light-glass | One theme everywhere (admin re-skin adds no value; audiences differ) |
+| 2026-08-07 | G2 scope revision + Sprint 4 full unlock | Stripe/customer product/landing built ahead of outreach data — Stakeholder challenged PM's G2 dependency claim and won: product+billing are channel-independent; G2 now gates only outreach scaling decisions. Sprint 4 opens in parallel (WORKFLOW parallel rule) | Waiting for G2 data before billing (fails cost-benefit with idle cheap dev capacity; worst case is copy tweaks) |
 | 2026-08-06 | Sender persona | "Anna" kept as pen name (alias → Stakeholder inbox), risk of persona exposure at sales stage knowingly accepted | Send as Pedram (PM preference — declined); real second person (not available now) |
 | 2026-08-06 | Sprint 3 scope + parallel start | Dashboard = /admin in new Next.js `reviewguide-app` repo (basic auth now, real auth Sprint 4); workspace scope per PM proposal; sending order = Stakeholder manual pick (newest-first default sort); Sprint 3 opened while 2.4/2.5 sit ⏸ external-gated (WORKFLOW amendment) | Throwaway admin app (wasted work); forced queue order (Stakeholder prefers daily judgment); waiting idle for reviewer verdict |
 | 2026-08-05 | Sprint 2 scope | Tune generation on 30–50 leads before full run; enrichment via Outscraper Emails & Contacts (~$3/1k, no own scraper); PL outreach template drafted in-sprint for Stakeholder approval | Generate-all-immediately (one bad template × 213 = 213 bad first impressions); own website scraper (dev time better spent on prompt quality) |

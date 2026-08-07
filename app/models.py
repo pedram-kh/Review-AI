@@ -43,6 +43,41 @@ class Review(Base):
     )
 
 
+class Customer(Base):
+    """A signed-up account (SPRINT_04.md ticket 4.2). Created lazily on a customer's first
+    successful magic-link verify, not at request-link time (see app/routers/auth.py's doc
+    comment on why "unknown email" still gets a link)."""
+
+    __tablename__ = "customers"
+
+    customer_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(Text, unique=True)
+    place_id: Mapped[str | None] = mapped_column(Text, ForeignKey("places.place_id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    stripe_customer_id: Mapped[str | None] = mapped_column(Text)
+    subscription_status: Mapped[str] = mapped_column(Text, server_default="none")
+    notification_email: Mapped[str | None] = mapped_column(Text)
+
+
+class AuthToken(Base):
+    """Single-use magic-link token (SPRINT_04.md ticket 4.2). `token_hash` is a SHA-256 hex
+    digest — the raw token only ever exists in the emailed URL and the verify request, never at
+    rest. `id`/`created_at` are additions beyond the ticket's literal 4-column list, both
+    required by the ticket's own stated behavior rather than speculative: `id` because
+    `token_hash` alone (while unique) makes for an awkward PK, and `created_at` because there is
+    no way to implement the ticket's explicit "3 requests/email/hour" rate limit without a
+    timestamp to bound the rolling window."""
+
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    email: Mapped[str] = mapped_column(Text, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Lead(Base):
     __tablename__ = "leads"
     __table_args__ = (UniqueConstraint("place_id", name="uq_leads_place_id"),)

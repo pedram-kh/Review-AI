@@ -19,7 +19,23 @@ class Settings(BaseSettings):
     admin_api_key: str = ""
     # CORS is restricted to exactly this origin (the Next.js dashboard on Netlify) — see
     # app/main.py. Defaults to the local dev server so `npm run dev` works out of the box.
+    # SPRINT_04.md ticket 4.2 also reuses this as the base URL for magic-link emails
+    # (`{app_origin}/auth/verify?token=...`) — it's already "the reviewguide-app deployment's
+    # public URL", no separate env var needed for the same thing.
     app_origin: str = "http://localhost:3000"
+    # SPRINT_04.md ticket 4.2. Left unset until the Stakeholder's Postmark account + verified
+    # mail.reviewguide.eu sending domain exist (see SPRINT_04.md's Stakeholder actions table) —
+    # app/services/postmark_client.py checks this and only logs (never calls the real API) while
+    # it's empty, so /api/auth/request-link works end-to-end today and starts actually emailing
+    # the moment this is set, with zero code changes.
+    postmark_token: str = ""
+    postmark_from_email: str = "alerts@mail.reviewguide.eu"
+    postmark_from_name: str = "ReviewGuide"
+    # Signs/verifies the 30-day session JWT issued by POST /api/auth/verify. Shared with
+    # reviewguide-app's server environment (never its client bundle) so the app can verify a
+    # session cookie locally in middleware without a round trip to the backend per page load —
+    # same shared-secret pattern as ADMIN_API_KEY between the two repos.
+    auth_jwt_secret: str = ""
 
 
 def _load_settings() -> Settings:

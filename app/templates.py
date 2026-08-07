@@ -58,3 +58,22 @@ def render_outreach(context: OutreachContext, reply_address: str) -> str:
         generated_response=context.generated_response.strip(),
         reply_address=reply_address,
     )
+
+
+# Magic-link login email (SPRINT_04.md ticket 4.2). Transactional, not from the "Anna" persona —
+# this is a system email, not outreach. Per the ticket's own instruction: "keep it 4 lines, no
+# marketing" — no CTA copy, no product pitch, just the link and its constraints.
+MAGIC_LINK_EMAIL_SUBJECT = "Twój link logowania do ReviewGuide"
+
+MAGIC_LINK_EMAIL_BODY_TEMPLATE = """Cześć,
+
+kliknij, aby zalogować się do ReviewGuide:
+{magic_link_url}
+
+Link jest ważny 15 minut i można go użyć tylko raz."""
+
+
+def render_magic_link_email(magic_link_url: str) -> tuple[str, str]:
+    return MAGIC_LINK_EMAIL_SUBJECT, MAGIC_LINK_EMAIL_BODY_TEMPLATE.format(
+        magic_link_url=magic_link_url
+    )

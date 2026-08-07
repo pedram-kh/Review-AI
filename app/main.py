@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import admin, health
+from app.routers import admin, auth, health
 
 app = FastAPI(title="ReviewPilot Backend")
 
@@ -18,3 +18,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(admin.router)
+app.include_router(auth.router)

@@ -114,6 +114,15 @@ used below exists with the expected shape (see §7), and by this project's own p
 already having run structurally identical `apprunner update-service` calls three times
 (tickets 3.2, 4.2, 4.3) without incident.
 
+**Numbering note (PM amendment, 2026-08-07):** "Step 0" (the SSM bastion) is presented first
+because it's the answer to Step 6's local-debugging-access question and must exist *before* RDS
+goes private — but it physically needs the private connector subnets, the NAT Gateway, and the
+RDS security group to already exist (an SSM-managed instance needs outbound internet reachability
+to talk to the SSM service endpoints, and the whole point of the bastion is being able to reach
+the RDS SG). So its commands are sequenced for real execution **after Steps 1-3** below, even
+though it's the conceptual "Step 0" — disclosed here rather than silently reordering the
+document without saying so.
+
 ### Step 1 — Create the connector's private subnets 🔵 (dry-run verified)
 
 No impact: nothing routes through these until step 5.
@@ -196,6 +205,103 @@ existing CIDR rules (unchanged).
 **Rollback:** `aws ec2 revoke-security-group-ingress ... --source-group $CONN_SG_ID` then
 `aws ec2 delete-security-group --group-id $CONN_SG_ID`.
 
+### Step 0 — SSM bastion bridge (PM amendment, 2026-08-07) 🟡🔵
+
+**Why this exists:** ticket 4.4's original Step 6 flagged, as an open question, that every
+local/CI direct-`psql` session this project has used since Sprint 0 (every `RUNBOOK_LEADS.md`
+job, every live-verification `python -m app.jobs.*` invocation, every ad-hoc debug query across
+tickets 1.x-4.3) permanently loses access the moment RDS goes private, and left the fix
+unbuilt/undecided. PM verdict on ticket 4.4 makes this a **cutover prerequisite, not a follow-up**
+— this step builds it before Step 6 removes public access, so nothing above breaks.
+
+**Design:** one `t4g.nano` EC2 instance (Amazon Linux 2023, arm64 — SSM Agent preinstalled, no
+extra setup), **no public IP**, living in one of the two connector private subnets from Step 1
+(so it rides the same NAT Gateway for its own outbound SSM traffic — no new NAT/VPC-endpoint
+cost). Reached exclusively via **AWS Systems Manager Session Manager** — zero inbound security
+group rules on the bastion itself, no SSH key to manage or leak, every session logged in
+CloudTrail/SSM. A local port-forward session tunnels `localhost:15432` → the bastion →
+`reviewpilot-db`'s private IP on 5432; overriding `DATABASE_URL` to point at that local port
+before running any existing job is the entire integration surface — **no code in this repo
+changes**, `RUNBOOK_LEADS.md`'s commands are literally byte-identical post-cutover, only the
+env var pointing at the DB differs for whoever's running them locally.
+
+**IAM instance role — manual console click-path (Stakeholder/AWS-admin action, console task #1,
+due before this step can launch the instance):**
+
+1. AWS Console → **IAM** → **Roles** → **Create role**.
+2. Trusted entity type: **AWS service**. Use case: **EC2**. Click **Next**.
+3. In the permissions search box, find and check **`AmazonSSMManagedInstanceCore`** (AWS-managed
+   policy — grants exactly the SSM Agent's own required permissions, nothing app-specific,
+   nothing IAM-write, nothing S3/EC2-write). Click **Next**.
+4. Name the role `reviewpilot-bastion-instance-role`, create it. (The EC2 console flow
+   auto-creates a matching **instance profile** with the same name — that's what `run-instances`
+   below references, not the role ARN directly.)
+5. No inline policy needed this time — the managed policy is sufficient and is the AWS-documented
+   minimum for Session Manager to work at all.
+
+```bash
+# --- Prerequisite security group for the bastion ---
+aws ec2 create-security-group --region eu-west-1 \
+  --group-name reviewpilot-bastion-sg \
+  --description "SSM-managed bastion - zero inbound rules, outbound only" \
+  --vpc-id vpc-0f33f60b804ff6738
+# capture GroupId as BASTION_SG_ID — leave its inbound rules empty (default = none); default
+# egress (allow all) is what it needs for SSM + the RDS tunnel
+
+# Let the bastion reach RDS: same pattern as the connector's rule in Step 3
+aws ec2 authorize-security-group-ingress --region eu-west-1 \
+  --group-id sg-00fff83298897dba1 --protocol tcp --port 5432 --source-group $BASTION_SG_ID
+
+# --- Launch the instance (only once the console role/instance-profile above exists) ---
+aws ec2 run-instances --region eu-west-1 \
+  --image-id ami-053d8df569ac57bbb \
+  --instance-type t4g.nano \
+  --subnet-id $CONN_SUBNET_A \
+  --security-group-ids $BASTION_SG_ID \
+  --iam-instance-profile Name=reviewpilot-bastion-instance-role \
+  --no-associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=reviewpilot-bastion}]'
+# capture InstanceId as BASTION_INSTANCE_ID
+```
+
+**Verify:**
+```bash
+aws ec2 wait instance-status-ok --region eu-west-1 --instance-ids $BASTION_INSTANCE_ID
+aws ssm describe-instance-information --region eu-west-1 \
+  --filters "Key=InstanceIds,Values=$BASTION_INSTANCE_ID" --query "InstanceInformationList[0].PingStatus"
+# expect "Online" — confirms the SSM Agent registered, i.e. the instance role + NAT path both work
+```
+
+**The bridge command itself (this is what every future debugging session runs first):**
+```bash
+aws ssm start-session --region eu-west-1 --target $BASTION_INSTANCE_ID \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["reviewpilot-db.cpsukkwcomk6.eu-west-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
+# leave this running in its own terminal for the duration of the debugging session
+```
+
+**Local `DATABASE_URL` override, in a second terminal, for the duration of the tunnel above**
+(same credentials as today's `.env` — only host/port change; `sslmode=require` still works, since
+TLS is negotiated end-to-end through the raw TCP forward and `require` mode doesn't check that
+the hostname matches the cert, unlike `verify-full`):
+```bash
+export DATABASE_URL="postgresql://reviewpilot:<same-password-as-.env>@localhost:15432/reviewpilot?sslmode=require"
+# every RUNBOOK_LEADS.md command (python -m app.jobs.discover, .enrich, .generate, etc.) now
+# works completely unchanged against the now-private DB
+```
+
+**Cost:** `t4g.nano` ≈ $3-3.50/mo (eu-west-1, on-demand, always-on) — SSM itself is free (no
+Session Manager service charge). Optional future optimization, not done now: stop the instance
+between debugging sessions (`aws ec2 stop-instances`) since nothing depends on it running
+continuously; a stopped `t4g.nano` costs $0 in compute (only its 8GB gp3 root volume, ~$0.64/mo).
+
+**Rollback:** `aws ec2 terminate-instances --instance-ids $BASTION_INSTANCE_ID`; revoke the
+`$BASTION_SG_ID` rule from the RDS SG; `delete-security-group`. Doesn't affect anything else in
+this runbook — the bastion is a pure side-branch off the shared private subnets/NAT, not a
+dependency of Steps 4-8.
+
+**This is a bridge, not the destination (see the rewritten note in Step 6 below).**
+
 ### Step 4 — Create the App Runner VPC connector 🟡 (schema-verified, no DryRun in this API)
 
 Standalone resource — doesn't affect the running service until step 5 attaches it.
@@ -263,23 +369,36 @@ aws rds modify-db-instance --region eu-west-1 \
   --apply-immediately
 ```
 
-**Expected downtime: none.** This flag does not reboot the instance; it only stops AWS from
-publishing a public IP for the endpoint. App Runner's connector was already resolving the
-private IP before this ran (step 5's note above) — this step just removes the public path that
-step 5's traffic was never using in the first place.
+**Expected downtime: none for App Runner's own traffic** — this flag does not reboot the
+instance; it only stops AWS from publishing a public IP for the endpoint, and App Runner's
+connector was already resolving the private IP before this ran (Step 5's note above), so its
+traffic path doesn't change at all. **`--apply-immediately` means it takes effect right away
+instead of waiting for the next maintenance window — the trade-off is that any session currently
+connected via the *public* path (there shouldn't be one left by this point in the runbook, but
+if there is — e.g. a leftover local `psql` session from before Step 0 existed) will have its
+TCP connection dropped and must re-establish** (a plain reconnect, not a data-loss risk;
+PostgreSQL client libraries/connection pools generally retry transparently, but a long-running
+interactive `psql` shell would need to be restarted by hand). App Runner's own connections
+(already flowing over the private path since Step 5) are unaffected — nothing to re-establish
+there.
 
-**Real, permanent side effect worth calling out explicitly (not a bug, a consequence):** any
-tool outside the VPC that was using the public endpoint — most notably, every direct `psql`/
-Python-script session this whole project has used from a local shell for debugging, backfills,
-and live verification (tickets 1.x-4.3 all did this) — **loses access immediately and
-permanently** once this runs, regardless of the security group. There is no SG rule that can
-restore it; `PubliclyAccessible=false` means no public IP exists to route to at all. **Open
-question for the Stakeholder/PM, not resolved by this ticket:** how does local/CI debugging reach
-the DB after cutover? Standard options, not built here (out of 4.4's stated scope): (a) an SSM
-Session Manager port-forward through a small always-off bastion EC2 instance (~$3-4/mo t4g.nano,
-only running when needed), (b) a Site-to-Site/Client VPN, (c) route all ad-hoc DB access through
-a one-off App Runner/Lambda job inside the VPC instead of a local client. Flagging now so it
-isn't a surprise mid-cutover.
+**Real, permanent side effect (not a bug, a consequence, and no longer an open question — PM
+amendment 2026-08-07 resolved it):** any tool outside the VPC that was using the public
+endpoint — every direct `psql`/Python-script session this whole project has used from a local
+shell for debugging, backfills, and live verification (tickets 1.x-4.3 all did this) — loses
+access immediately and permanently once this runs, regardless of the security group; there is no
+SG rule that can restore it, since `PubliclyAccessible=false` means no public IP exists to route
+to at all. **Step 0 above is the bridge**: the SSM bastion's port-forward + a `DATABASE_URL`
+override is now built and verified *before* this step runs, so nothing in `RUNBOOK_LEADS.md`'s
+workflow actually breaks — it just gains one extra terminal command (`aws ssm start-session`)
+per debugging session. **The bastion is explicitly a bridge, not the permanent answer**: the
+real fix is that local machines shouldn't need direct DB access at all — BACKLOG.md's
+"Pipeline ops in admin panel" item (Run-pipeline-now button, polling schedule, cost-cap editing,
+per-run spend history, already scoped as needing "real auth (Sprint 4) before any money-spending
+buttons exist in UI" — which Sprint 4 has now delivered) moves job execution *into* App Runner
+itself, reachable over the web UI, with the local bastion tunnel becoming a rarely-needed
+fallback rather than the everyday path. Tracked as Sprint 5/6 scope in BACKLOG.md, not built here
+— this ticket's job was the bridge, not the destination.
 
 **Verify:** `aws rds describe-db-instances --db-instance-identifier reviewpilot-db --query "DBInstances[0].PubliclyAccessible"` → `false`. Re-run step 5's full verification block again —
 if `/health` still returns 200 after this, the private path is proven, not assumed.
@@ -440,6 +559,9 @@ performing the action):
 - `ec2 create-security-group` (exact name/description/VPC used in step 3) — ✅
 - `ec2 revoke-security-group-ingress` — run against the **real, currently-live** `0.0.0.0/0`
   rule on `sg-00fff83298897dba1` (step 7's actual command, dry-run flagged) — ✅
+- `ec2 create-security-group` (bastion SG, exact name/description/VPC used in Step 0) — ✅
+- `ec2 run-instances` (Step 0's exact AMI/instance-type/no-public-IP flags, against a placeholder
+  subnet since the real connector subnet doesn't exist yet) — ✅
 
 RDS (`modify-db-instance`) and App Runner (`create-vpc-connector`, `update-service`) have no
 `DryRun` parameter in their APIs — instead validated by pulling each command's live

@@ -50,7 +50,7 @@ pointed at paying customers' profiles.
 | 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ✅ Closed (213 leads) |
 | 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | 🟡 2.4/2.5 ⏸ external-gated |
 | 3 | 1 week | Internal dashboard + outreach starts | First 10–20 sends via dashboard; reply tracking live | 🔵 ACTIVE (parallel) |
-| 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | 🔵 ACTIVE (parallel) |
+| 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | ✅ Closed (1 day; milestone in 96s on Stakeholder's device — cutover **executed**, not just rehearsed) |
 | 5 | 1 week | Value delivery (launch) | New review on test restaurant → correct alert email arrives | ⚪ Planned |
 | 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | ⚪ Planned |
 

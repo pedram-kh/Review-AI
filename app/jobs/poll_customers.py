@@ -46,6 +46,7 @@ prioritizing/rotating customers instead of an all-or-nothing abort) is future sc
 
 import argparse
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -80,6 +81,10 @@ MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY = 10
 
 ELIGIBLE_STATUSES = ("trialing", "active")
 ALERT_KIND = "alert"
+
+# Ticket 5.2 async-202 follow-up (2026-08-08): guards run_poll_customers_locked() below, the one
+# entry point that can now overlap with itself — see that function's docstring.
+_RUN_LOCK = threading.Lock()
 
 
 def is_within_poll_window(now: datetime | None = None) -> bool:
@@ -360,6 +365,42 @@ def run_poll_customers(
 
     result["daily_cap_skipped_customers"] = len(skipped_customers_for_daily_cap)
     return result
+
+
+def run_poll_customers_locked(on_progress=lambda msg: None) -> dict:
+    """Entry point for app/routers/jobs.py's BackgroundTasks call (ticket 5.2's async-202
+    follow-up, 2026-08-08) — opens its own DB session since a background task outlives the
+    request's own session/dependency lifecycle.
+
+    Every cap/idempotency guard *inside* run_poll_customers() is idempotency-by-alerts: the
+    `alerts` table's (customer_id, review_id) unique constraint (+ the up-front already-alerted
+    pre-check) guarantees two overlapping runs can never produce two alert rows or two emails for
+    the same review — that contract is unchanged by this function and is exactly what made
+    EventBridge's at-least-once, double-fire delivery safe in the synchronous design.
+
+    What idempotency-by-alerts does NOT guard against: two runs truly executing concurrently
+    (now possible now that a slow trigger no longer blocks the HTTP response — a second request
+    can schedule a second background task before the first one finishes) could both pass the
+    "not yet alerted" pre-check for the same review before either commits its first insert, and
+    both would call Claude for it — the ON CONFLICT DO NOTHING then discards one row, but not the
+    real money already spent generating it. Same class of bug as ticket 5.1's pre-spend
+    idempotency fix, here for cross-run overlap instead of single-run re-entrancy. This function
+    closes that gap with a plain in-process, non-blocking run-lock: if a run is already in
+    flight, a new trigger is coalesced into a no-op rather than started as a second concurrent
+    run. A single-process App Runner instance makes an in-process lock sufficient here — the
+    ticket does not call for a distributed lock, and adding one (e.g. a DB advisory lock) would be
+    unjustified complexity for a job that only one instance of this service runs today.
+    """
+    if not _RUN_LOCK.acquire(blocking=False):
+        on_progress("Another poll-customers run is already in progress — skipping this trigger.")
+        result = _empty_result()
+        result["skipped_reason"] = "already_running"
+        return result
+    try:
+        with SessionLocal() as session:
+            return run_poll_customers(session, on_progress=on_progress)
+    finally:
+        _RUN_LOCK.release()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

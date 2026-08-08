@@ -1,5 +1,7 @@
 from pathlib import Path
+from unittest.mock import patch
 
+from app.config import settings
 from app.templates import (
     ALERT_EMAIL_APPROVED_ON,
     OUTREACH_TEMPLATE_V1,
@@ -8,6 +10,7 @@ from app.templates import (
     DigestDraftItem,
     OutreachContext,
     render_alert_email,
+    render_magic_link_email,
     render_outreach,
     render_welcome_digest,
 )
@@ -222,3 +225,101 @@ def test_welcome_digest_html_escapes_review_text() -> None:
     assert "<img" not in html_body
     assert "&lt;img" in html_body
     assert "<b>Testowa</b>" not in html_body
+
+
+# --- Regression: PM finding on ticket 5.4's live proof emails, 2026-08-08 -----------------------
+#
+# The two proof emails sent for PM/Stakeholder review both had a "Otwórz panel ReviewGuide" CTA
+# pointing at localhost — third bug in the APP_ORIGIN-config family (after 4.2's forwarded-host
+# issue and 4.5's stale-App-Runner-env-var issue). Root cause: app/templates.py's app link used
+# to be a module-level constant computed once, whenever app.templates first got imported into a
+# process — correct for the real App Runner server (imported once, after APP_ORIGIN is already
+# set), but wrong for a one-off ops script that imported app.templates under a local .env
+# (APP_ORIGIN defaulting to localhost). Fixed via app/templates.py's _app_link(), which reads
+# settings.app_origin live on every call instead of caching it at import time.
+
+_PROD_APP_ORIGIN = "https://app.reviewguide.eu"
+_FORBIDDEN_HOST_SUBSTRINGS = ("localhost", ".netlify.app")
+
+
+def test_no_rendered_email_ever_leaks_a_dev_or_preview_host() -> None:
+    """Template-wide sweep, not a single-URL check, per the PM's own instruction: every
+    email-producing render function, rendered with the real production app_origin patched in
+    (not the ambient test-suite .env default, which IS localhost — that would make this
+    assertion trivially true for the wrong reason), must never contain "localhost" or a
+    ".netlify.app" host anywhere in its subject/text/HTML."""
+    with patch.object(settings, "app_origin", _PROD_APP_ORIGIN):
+        alert_subject, alert_text, alert_html = render_alert_email(
+            place_name="Testowa",
+            rating=1,
+            review_text="Coś poszło nie tak.",
+            response_text="Przepraszamy.",
+            is_urgent=True,
+            health_flagged=True,
+        )
+        digest_subject, digest_text, digest_html = render_welcome_digest(
+            [
+                DigestDraftItem(
+                    place_name="Testowa",
+                    rating=5,
+                    review_text="Super!",
+                    response_text="Dziękujemy!",
+                    is_urgent=False,
+                )
+            ]
+        )
+        magic_subject, magic_body = render_magic_link_email(
+            f"{_PROD_APP_ORIGIN}/auth/verify?token=test"
+        )
+
+    rendered_parts = {
+        "alert_subject": alert_subject,
+        "alert_text": alert_text,
+        "alert_html": alert_html,
+        "digest_subject": digest_subject,
+        "digest_text": digest_text,
+        "digest_html": digest_html,
+        "magic_subject": magic_subject,
+        "magic_body": magic_body,
+    }
+    for name, part in rendered_parts.items():
+        for forbidden in _FORBIDDEN_HOST_SUBSTRINGS:
+            assert forbidden not in part, f"{forbidden!r} leaked into {name}: {part!r}"
+
+    # Positive check so the sweep above isn't vacuously true because nothing renders a link at
+    # all — the patched prod origin must actually show up in the bodies that carry an app link.
+    assert _PROD_APP_ORIGIN in alert_text
+    assert _PROD_APP_ORIGIN in alert_html
+    assert _PROD_APP_ORIGIN in digest_text
+    assert _PROD_APP_ORIGIN in digest_html
+
+
+def test_app_link_is_read_live_not_cached_at_import_time() -> None:
+    """Narrower unit test isolating the exact bug: two renders in the same process, with
+    settings.app_origin changed in between, must produce two different links — proving the app
+    link is computed fresh on every call rather than frozen at whatever value existed the first
+    time app.templates was imported into this test process (which already happened, elsewhere in
+    this same test run, under the ambient localhost default — so this test is itself live proof
+    the fix works, not just a claim about it)."""
+    with patch.object(settings, "app_origin", "https://one.example.com"):
+        _subject, _text, html_one = render_alert_email(
+            place_name="A",
+            rating=5,
+            review_text="ok",
+            response_text="ok",
+            is_urgent=False,
+            health_flagged=False,
+        )
+    with patch.object(settings, "app_origin", "https://two.example.com"):
+        _subject, _text, html_two = render_alert_email(
+            place_name="A",
+            rating=5,
+            review_text="ok",
+            response_text="ok",
+            is_urgent=False,
+            health_flagged=False,
+        )
+    assert "https://one.example.com/app" in html_one
+    assert "https://two.example.com/app" in html_two
+    assert "one.example.com" not in html_two
+    assert "two.example.com" not in html_one

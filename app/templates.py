@@ -89,7 +89,24 @@ def render_magic_link_email(magic_link_url: str) -> tuple[str, str]:
 # generated response) MUST go through _escape_html before landing in an HTML string — reviews are
 # untrusted third-party content scraped from Google, so this is a real injection boundary, not
 # just tidiness.
-_APP_LINK = f"{settings.app_origin}/app"
+def _app_link() -> str:
+    """`{app_origin}/app`, read live on every call rather than cached — this was a real bug
+    (ticket 5.4 PM review, 2026-08-08), third in the APP_ORIGIN-config family after 4.2's
+    forwarded-host issue and 4.5's stale-App-Runner-env-var issue. The original code memoized
+    this as a module-level constant (`_APP_LINK = f"{settings.app_origin}/app"`), evaluated once
+    whenever `app.templates` first got imported into a process. `app/routers/auth.py`'s
+    magic-link URL was never affected because it was always built fresh inside the request
+    handler — `app.templates` was the one place in this "family" that froze the value instead.
+    In the real App Runner process this is harmless (APP_ORIGIN is correct before the app ever
+    starts handling requests), but it silently poisoned an ops proof-sending script that imported
+    `app.templates` under a local `.env` (APP_ORIGIN defaulting to localhost) — the two live
+    proof emails sent to the PM/Stakeholder both had a CTA button pointing at localhost. Reusing
+    `settings.app_origin` rather than inventing a separate `PANEL_URL` stays architecturally
+    consistent with the other two members of this family (auth.py's magic link, main.py's CORS
+    allow-list) — all three are the same "public URL of the reviewguide-app deployment" concept,
+    not three concepts that happen to share a value."""
+    return f"{settings.app_origin}/app"
+
 
 _HTML_FONT_STACK = (
     "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
@@ -129,7 +146,7 @@ def _html_health_warning() -> str:
 
 def _html_app_link_button() -> str:
     return (
-        f'<p style="margin-top:24px;"><a href="{_APP_LINK}" style="display:inline-block;'
+        f'<p style="margin-top:24px;"><a href="{_app_link()}" style="display:inline-block;'
         "background:#111;color:#fff;text-decoration:none;padding:10px 20px;border-radius:999px;"
         'font-weight:600;">Otwórz panel ReviewGuide</a></p>'
     )
@@ -194,7 +211,7 @@ def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
         f"przygotowaliśmy {len(items)} gotowych odpowiedzi na najnowsze opinie Państwa "
         "restauracji:\n\n" + "\n\n---\n\n".join(text_blocks) + "\n\n"
         "Skopiuj wybraną odpowiedź i wklej ją w Profilu Firmy Google.\n"
-        f"Panel: {_APP_LINK}"
+        f"Panel: {_app_link()}"
     )
     html_body = _html_wrapper(
         "<p>Cześć,</p>"
@@ -246,7 +263,7 @@ def render_alert_email(
         f"Gotowa odpowiedź (kopiuj-wklej):\n{response_text.strip()}"
         f"{text_health_line}\n\n"
         "Skopiuj odpowiedź i wklej ją w Profilu Firmy Google.\n"
-        f"Panel: {_APP_LINK}"
+        f"Panel: {_app_link()}"
     )
 
     html_body = _html_wrapper(

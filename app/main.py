@@ -1,8 +1,27 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import admin, admin_customers, auth, billing, customer, health, jobs
+
+# Uvicorn configures handlers for its own loggers only ("uvicorn"/"uvicorn.access", both with
+# propagate=False, so this adds no duplicate access lines) and leaves the root logger bare.
+# Without this call, every logging.getLogger(__name__) record in this codebase below WARNING is
+# silently dropped — it propagates to a handler-less root and falls through to
+# logging.lastResort, which only emits WARNING and above.
+#
+# Harmless while nothing important logged at INFO; it stopped being harmless the moment ticket
+# 5.2's poll job moved to the async-202 pattern, because the run summary in this log became the
+# ONLY record of what an unattended run actually did (the HTTP response is now just a 202
+# receipt EventBridge never reads). Found live on the first successful scheduled tick
+# (18:00 CEST 2026-08-08): uvicorn logged its own "202 Accepted" access line, and not one line
+# from the job itself.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 app = FastAPI(title="ReviewPilot Backend")
 

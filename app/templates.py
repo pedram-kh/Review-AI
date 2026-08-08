@@ -155,13 +155,15 @@ def _html_app_link_button() -> str:
 # --- Welcome digest (SPRINT_05.md ticket 5.1's day-one job) -----------------------------------
 #
 # Finalized copy (ticket 5.4). Same approval-gate pattern as TEMPLATE_APPROVED_ON: while
-# WELCOME_DIGEST_APPROVED_ON is None, app/jobs/day_one.py composes the digest and logs it via
+# WELCOME_DIGEST_APPROVED_ON was None, app/jobs/day_one.py composed the digest and logged it via
 # postmark_client's own POSTMARK_TOKEN-unset path (never calls send_email) — the gate isn't about
 # copy readiness anymore (this IS the reviewed copy), it's the same "Stakeholder/PM sees a real
 # rendered proof before it reaches a real customer inbox" gate every send-capable template in
-# this codebase goes through. Live proofs sent to pedram@reviewguide.eu per the ticket's own
-# instruction; flip this once that review confirms.
-WELCOME_DIGEST_APPROVED_ON: str | None = None
+# this codebase goes through.
+#
+# APPROVED (PM, 2026-08-08) — after the app-link fix (see _app_link()'s docstring) and re-sent,
+# independently-Postmark-verified proofs. day_one.py now actually calls send_email() for real.
+WELCOME_DIGEST_APPROVED_ON: str | None = "2026-08-08"
 
 WELCOME_DIGEST_SUBJECT = "Twoje odpowiedzi są gotowe"
 
@@ -225,10 +227,16 @@ def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
 # --- Alert email (SPRINT_05.md ticket 5.2's ongoing 2h-cycle poller) ----------------------------
 #
 # Finalized copy (ticket 5.4). Same gate posture as WELCOME_DIGEST_APPROVED_ON above: while
-# ALERT_EMAIL_APPROVED_ON is None, app/jobs/poll_customers.py composes and logs the alert via
-# postmark_client's own POSTMARK_TOKEN-unset path (never calls send_email) — pending the
-# Stakeholder/PM reviewing the live proof sent to pedram@reviewguide.eu.
-ALERT_EMAIL_APPROVED_ON: str | None = None
+# ALERT_EMAIL_APPROVED_ON was None, app/jobs/poll_customers.py composed and logged the alert via
+# postmark_client's own POSTMARK_TOKEN-unset path (never calls send_email).
+#
+# APPROVED (PM, 2026-08-08) — same review as WELCOME_DIGEST_APPROVED_ON above. poll_customers.py
+# now actually calls send_email() for real on every newly-detected review. NOTE (disclosed, not
+# this gate's problem to fix): the *automatic* 2h trigger is separately broken as of today (see
+# PROGRESS.md ticket 5.2) — flipping this gate makes a successful poll run send for real, but a
+# poll run isn't currently reaching that code via the unattended scheduler at all. Manual/job-key
+# calls to POST /api/jobs/poll-customers already do send for real with this flipped.
+ALERT_EMAIL_APPROVED_ON: str | None = "2026-08-08"
 
 
 def render_alert_email(

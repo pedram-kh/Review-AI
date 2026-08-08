@@ -77,11 +77,13 @@ def test_render_does_not_leak_none_for_missing_values() -> None:
 # --- Ticket 5.4: alert + welcome digest email templates -----------------------------------
 
 
-def test_alert_and_digest_gates_are_unset_until_stakeholder_pm_review() -> None:
-    # Same "flipping this is a deliberate act" guard as TEMPLATE_APPROVED_ON above — these two
-    # gates are pending the live-proof review the ticket asks for, not code-readiness.
-    assert ALERT_EMAIL_APPROVED_ON is None
-    assert WELCOME_DIGEST_APPROVED_ON is None
+def test_alert_and_digest_gates_are_approved() -> None:
+    # PM approved both on 2026-08-08, after the app-link fix + re-sent, independently-verified
+    # proofs — same "flipping this is a deliberate, dated act" contract as TEMPLATE_APPROVED_ON,
+    # now on the "approved" side of it. A non-None value is what makes app/jobs/day_one.py and
+    # app/jobs/poll_customers.py actually call send_email() for real.
+    assert ALERT_EMAIL_APPROVED_ON == "2026-08-08"
+    assert WELCOME_DIGEST_APPROVED_ON == "2026-08-08"
 
 
 def test_alert_email_subject_matches_spec_normal_case() -> None:

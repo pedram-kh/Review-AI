@@ -3,10 +3,16 @@
 Same "real in-memory sqlite, mocked external services" posture as tests/test_day_one.py — the
 idempotency/cap logic is the entire point of this job, so it's worth exercising against a real
 unique constraint rather than a MagicMock's call count.
+
+The module-level `_mock_send_email` autouse fixture below mocks Postmark for every test here,
+independent of ALERT_EMAIL_APPROVED_ON's real value — same rationale as test_day_one.py's
+identically-named fixture (added 2026-08-08 alongside that gate being flipped for real).
 """
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.jobs.poll_customers import (
     MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY,
@@ -20,6 +26,12 @@ from app.services.claude_client import GeneratedResponse
 WITHIN_WINDOW = datetime(2026, 8, 11, 10, 0, tzinfo=UTC)
 BEFORE_WINDOW = datetime(2026, 8, 11, 4, 0, tzinfo=UTC)  # 06:00 Warsaw
 AFTER_WINDOW = datetime(2026, 8, 11, 22, 0, tzinfo=UTC)  # 00:00 Warsaw (next day)
+
+
+@pytest.fixture(autouse=True)
+def _mock_send_email():
+    with patch("app.jobs.poll_customers.send_email", return_value="msg-test-autouse") as mock:
+        yield mock
 
 
 def _seed_place(db_session, *, place_id="p1") -> Place:
@@ -138,9 +150,10 @@ def test_new_review_gets_fetched_drafted_and_alerted(
     assert alert.kind == "alert"
     assert alert.is_urgent is True
     assert alert.generation_stop_reason == "end_turn"
-    # ALERT_EMAIL_APPROVED_ON is unset (ticket 5.4 pending) — composed, not sent.
-    assert result["emails_sent"] == 0
-    assert alert.sent_at is None
+    # ALERT_EMAIL_APPROVED_ON is approved as of 2026-08-08 — the alert send (mocked above)
+    # actually goes out.
+    assert result["emails_sent"] == 1
+    assert alert.sent_at is not None
 
 
 @patch("app.jobs.poll_customers.ClaudeClient")

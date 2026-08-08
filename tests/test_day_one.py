@@ -6,6 +6,15 @@ empirically) compiles and enforces the unique constraint correctly under sqlite 
 idempotency behavior this job exists to guarantee is worth actually exercising rather than
 asserting via a MagicMock's call count. Every external service (Outscraper, Claude, Postmark) is
 still mocked — no real network call, no real spend, ever.
+
+The module-level `_mock_send_email` autouse fixture below is that Postmark mock, applying to
+every test in this file regardless of WELCOME_DIGEST_APPROVED_ON's real value. It was added
+2026-08-08 alongside the gate being flipped for real (ticket 5.4 PM approval) — before that, the
+gate being None meant app/jobs/day_one.py never reached send_email() in the first place, so most
+tests here got away with not mocking it. The moment the gate flipped, every test with a
+qualifying review started making a real, unmocked HTTPS call to api.postmarkapp.com using the
+real local .env POSTMARK_TOKEN, which Postmark correctly rejected (422) since the fixture data
+isn't a real send-able payload. Real bug in test isolation, not in the gate flip — fixed same day.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -20,6 +29,15 @@ from app.services.claude_guard import ClaudeCallCapExceeded
 from app.services.cost_guard import CostCapExceeded
 
 NOW = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _mock_send_email():
+    """Never let a test in this file reach the real Postmark API, independent of the real
+    WELCOME_DIGEST_APPROVED_ON value. Tests that care about the send/no-send decision itself
+    layer their own @patch on top (patch stacks fine) or explicitly re-patch the gate."""
+    with patch("app.jobs.day_one.send_email", return_value="msg-test-autouse") as mock:
+        yield mock
 
 
 def _seed_place(db_session, *, place_id="p1", fresh: bool) -> Place:
@@ -177,7 +195,9 @@ def test_generates_drafts_and_records_alerts_with_correct_urgency(
     assert alerts["negative"].is_urgent is True
     assert alerts["negative"].kind == "digest"
     assert alerts["positive"].is_urgent is False
-    assert alerts["negative"].sent_at is None  # digest gate is off by default
+    # WELCOME_DIGEST_APPROVED_ON is approved as of 2026-08-08 — the digest send (mocked above)
+    # actually goes out, so both alerts in the batch get stamped.
+    assert alerts["negative"].sent_at is not None
 
 
 @patch("app.jobs.day_one.enforce_call_cap", side_effect=ClaudeCallCapExceeded("cap hit"))
@@ -197,11 +217,15 @@ def test_claude_call_cap_exceeded_aborts_before_any_call(
     assert db_session.query(Alert).count() == 0
 
 
-@patch("app.jobs.day_one.send_email")
+@patch("app.jobs.day_one.WELCOME_DIGEST_APPROVED_ON", None)
 @patch("app.jobs.day_one.ClaudeClient")
-def test_digest_is_not_sent_while_approval_is_unset(
-    mock_claude_cls: MagicMock, mock_send_email: MagicMock, db_session
+def test_digest_is_not_sent_when_gate_is_explicitly_unset(
+    mock_claude_cls: MagicMock, db_session, _mock_send_email: MagicMock
 ) -> None:
+    # WELCOME_DIGEST_APPROVED_ON is approved in real config as of 2026-08-08 (see the autouse
+    # _mock_send_email fixture's docstring), so this test forces the gate back to None to prove
+    # the "compose but don't send" code path is still correct and reachable, in case the gate is
+    # ever unset again (e.g. copy changes needing re-review).
     _seed_place(db_session, fresh=True)
     _seed_review(db_session, review_id="r1", rating=5, days_old=1)
     customer = _seed_customer(db_session)
@@ -209,7 +233,7 @@ def test_digest_is_not_sent_while_approval_is_unset(
 
     result = run_day_one_for_customer(db_session, customer)
 
-    mock_send_email.assert_not_called()
+    _mock_send_email.assert_not_called()
     assert result["digest_sent"] is False
     assert result["postmark_message_id"] is None
 

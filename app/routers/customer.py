@@ -8,15 +8,15 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import func
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_customer
 from app.db import get_session
 from app.jobs.day_one import run_day_one_for_customer
-from app.models import Customer, Place
+from app.models import Alert, Customer, Place, Review
 from app.services.cost_guard import CostCapExceeded
 from app.services.maps_url import parse_maps_url
 from app.services.outscraper_client import OutscraperClient
@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 
 SEARCH_RESULT_LIMIT = 5
+
+# LOGIC.md §8a: tone_preference is a closed choice, not free text — same "validate against a
+# fixed set" posture as every other enum-ish column in this codebase (leads.status, alerts.kind).
+TONE_PREFERENCES = ("formal", "friendly")
+
+# Ticket 5.3's "recent alerts list" — a generous-but-bounded window rather than unbounded, same
+# pagination-safety-net reasoning as ticket 3.1's admin /leads default limit.
+ALERTS_LIST_LIMIT = 30
 
 
 # --- GET /api/customer/search-place -------------------------------------------------------------
@@ -74,6 +82,171 @@ def search_place(
         if raw.get("place_id")
     ]
     return SearchPlaceResponse(results=results)
+
+
+# --- GET /api/customer/state ----------------------------------------------------------------
+# Ticket 5.3's post-connect home + settings panel both need this: connected-place info (or None,
+# so the frontend knows to show the connect flow instead), tone_preference, and
+# notification_email. Not in ticket 5.1's endpoint list — that ticket only needed to *set*
+# place_id; 5.3 is the first thing that needs to *read back* the full customer-facing state in
+# one call, per this ticket's own Cursor prompt ("add the needed GET endpoints ... if missing").
+
+
+class PlaceInfo(BaseModel):
+    place_id: str
+    name: str | None
+    address: str | None
+    rating: float | None
+    last_polled_at: datetime | None
+
+
+class CustomerStateResponse(BaseModel):
+    email: str
+    notification_email: str | None
+    tone_preference: str
+    connected_at: datetime | None
+    place: PlaceInfo | None
+
+
+def _build_state_response(customer: Customer, session: Session) -> CustomerStateResponse:
+    place_info = None
+    if customer.place_id:
+        place = session.get(Place, customer.place_id)
+        if place is not None:
+            place_info = PlaceInfo(
+                place_id=place.place_id,
+                name=place.name,
+                address=place.address,
+                rating=place.rating,
+                last_polled_at=place.last_polled_at,
+            )
+    return CustomerStateResponse(
+        email=customer.email,
+        notification_email=customer.notification_email,
+        tone_preference=customer.tone_preference,
+        connected_at=customer.connected_at,
+        place=place_info,
+    )
+
+
+@router.get("/state")
+def get_customer_state(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+) -> CustomerStateResponse:
+    return _build_state_response(customer, session)
+
+
+# --- PATCH /api/customer/settings ------------------------------------------------------------
+
+
+class UpdateSettingsBody(BaseModel):
+    notification_email: EmailStr | None = None
+    tone_preference: str | None = None
+
+
+@router.patch("/settings")
+def update_customer_settings(
+    body: UpdateSettingsBody,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+) -> CustomerStateResponse:
+    if body.tone_preference is not None and body.tone_preference not in TONE_PREFERENCES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"tone_preference musi być jedną z wartości: {', '.join(TONE_PREFERENCES)}.",
+        )
+
+    if body.notification_email is not None:
+        customer.notification_email = body.notification_email
+    if body.tone_preference is not None:
+        customer.tone_preference = body.tone_preference
+    session.commit()
+    session.refresh(customer)
+
+    return _build_state_response(customer, session)
+
+
+# --- GET /api/customer/alerts ----------------------------------------------------------------
+
+
+class AlertItem(BaseModel):
+    alert_id: int
+    review_id: str
+    review_text: str | None
+    review_rating: int | None
+    review_date: datetime | None
+    response_text: str
+    is_urgent: bool
+    kind: str
+    sent_at: datetime | None
+    created_at: datetime
+
+
+class AlertsListResponse(BaseModel):
+    alerts: list[AlertItem]
+
+
+@router.get("/alerts")
+def list_customer_alerts(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+) -> AlertsListResponse:
+    rows = session.execute(
+        select(Alert, Review)
+        .join(Review, Alert.review_id == Review.review_id)
+        .where(Alert.customer_id == customer.customer_id)
+        # alert_id as a tiebreaker: two alerts from the same poll/digest run can share the same
+        # created_at at typical DB timestamp resolution, which would otherwise make "newest
+        # first" ordering nondeterministic (caught by a flaky-looking test, not a live bug yet).
+        .order_by(desc(Alert.created_at), desc(Alert.alert_id))
+        .limit(ALERTS_LIST_LIMIT)
+    ).all()
+
+    return AlertsListResponse(
+        alerts=[
+            AlertItem(
+                alert_id=alert.alert_id,
+                review_id=review.review_id,
+                review_text=review.text,
+                review_rating=review.rating,
+                review_date=review.review_date,
+                response_text=alert.response_text,
+                is_urgent=alert.is_urgent,
+                kind=alert.kind,
+                sent_at=alert.sent_at,
+                created_at=alert.created_at,
+            )
+            for alert, review in rows
+        ]
+    )
+
+
+# --- POST /api/customer/preview-maps-url -----------------------------------------------------
+# Ticket 5.3's "wklej link" fallback needs a confirmation card before connecting, same as the
+# search path does — but connect-place's own maps_url parsing only runs at commit time. This
+# reuses the exact same parse_maps_url() (a URL parse + at most a redirect-follow HTTP GET for
+# shorteners, zero Outscraper/Claude spend, nothing cost-guarded elsewhere in this codebase
+# requires it here either) so the preview and the real connect never disagree on what a given
+# link resolves to.
+
+
+class PreviewMapsUrlBody(BaseModel):
+    maps_url: str
+
+
+class PreviewMapsUrlResponse(BaseModel):
+    place_id: str | None
+    suggested_query: str | None
+
+
+@router.post("/preview-maps-url")
+def preview_maps_url(
+    body: PreviewMapsUrlBody,
+    customer: Customer = Depends(get_current_customer),
+) -> PreviewMapsUrlResponse:
+    parsed = parse_maps_url(body.maps_url)
+    return PreviewMapsUrlResponse(place_id=parsed.place_id, suggested_query=parsed.suggested_query)
 
 
 # --- POST /api/customer/connect-place -----------------------------------------------------------

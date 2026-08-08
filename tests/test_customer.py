@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import create_session_token
 from app.main import app
-from app.models import Customer, Place
+from app.models import Alert, Customer, Place, Review
 from app.services.cost_guard import CostCapExceeded
 from app.services.maps_url import ParsedMapsUrl
 
@@ -107,6 +107,251 @@ def test_search_place_surfaces_cost_cap_as_503(
     )
 
     assert response.status_code == 503
+
+
+# --- GET /api/customer/state --------------------------------------------------------------------
+
+
+def test_state_requires_auth(db_session, auth_settings) -> None:
+    response = client.get("/api/customer/state")
+    assert response.status_code == 401
+
+
+def test_state_not_connected_has_no_place(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="state-none@example.com")
+
+    response = client.get(
+        "/api/customer/state", headers=_session_header(customer.customer_id, customer.email)
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["place"] is None
+    assert body["tone_preference"] == "formal"
+    assert body["notification_email"] == "state-none@example.com"
+
+
+def test_state_connected_includes_place_info(db_session, auth_settings) -> None:
+    db_session.add(
+        Place(place_id="p-state", name="Bar Testowy", address="ul. Test 1", rating=4.3)
+    )
+    db_session.commit()
+    customer = _seed_customer(db_session, email="state-connected@example.com", place_id="p-state")
+
+    response = client.get(
+        "/api/customer/state", headers=_session_header(customer.customer_id, customer.email)
+    )
+
+    assert response.status_code == 200
+    place = response.json()["place"]
+    assert place["place_id"] == "p-state"
+    assert place["name"] == "Bar Testowy"
+    assert place["rating"] == 4.3
+
+
+# --- PATCH /api/customer/settings ------------------------------------------------------------
+
+
+def test_update_settings_requires_auth(db_session, auth_settings) -> None:
+    response = client.patch("/api/customer/settings", json={"tone_preference": "friendly"})
+    assert response.status_code == 401
+
+
+def test_update_settings_changes_notification_email(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="settings1@example.com")
+
+    response = client.patch(
+        "/api/customer/settings",
+        json={"notification_email": "alerts-here@example.com"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["notification_email"] == "alerts-here@example.com"
+    db_session.refresh(customer)
+    assert customer.notification_email == "alerts-here@example.com"
+    # Login email is untouched — only notification_email changed.
+    assert customer.email == "settings1@example.com"
+
+
+def test_update_settings_changes_tone_preference(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="settings2@example.com")
+
+    response = client.patch(
+        "/api/customer/settings",
+        json={"tone_preference": "friendly"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tone_preference"] == "friendly"
+    db_session.refresh(customer)
+    assert customer.tone_preference == "friendly"
+
+
+def test_update_settings_rejects_invalid_tone_preference(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="settings3@example.com")
+
+    response = client.patch(
+        "/api/customer/settings",
+        json={"tone_preference": "sarcastic"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 422
+    db_session.refresh(customer)
+    assert customer.tone_preference == "formal"
+
+
+def test_update_settings_rejects_invalid_email(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="settings4@example.com")
+
+    response = client.patch(
+        "/api/customer/settings",
+        json={"notification_email": "not-an-email"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 422
+
+
+# --- GET /api/customer/alerts --------------------------------------------------------------------
+
+
+def test_alerts_requires_auth(db_session, auth_settings) -> None:
+    response = client.get("/api/customer/alerts")
+    assert response.status_code == 401
+
+
+def test_alerts_empty_when_none_exist(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="alerts-empty@example.com")
+
+    response = client.get(
+        "/api/customer/alerts", headers=_session_header(customer.customer_id, customer.email)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["alerts"] == []
+
+
+def test_alerts_lists_newest_first_with_review_details(db_session, auth_settings) -> None:
+    db_session.add(Place(place_id="p-alerts", name="Restauracja Alertowa"))
+    db_session.add(
+        Review(review_id="r1", place_id="p-alerts", rating=5, text="Świetnie!", author="A")
+    )
+    db_session.add(
+        Review(review_id="r2", place_id="p-alerts", rating=1, text="Fatalnie", author="B")
+    )
+    db_session.commit()
+    customer = _seed_customer(db_session, email="alerts-list@example.com", place_id="p-alerts")
+
+    db_session.add(
+        Alert(
+            customer_id=customer.customer_id,
+            review_id="r1",
+            response_text="Dziękujemy!",
+            is_urgent=False,
+            kind="digest",
+        )
+    )
+    db_session.commit()
+    db_session.add(
+        Alert(
+            customer_id=customer.customer_id,
+            review_id="r2",
+            response_text="Przepraszamy.",
+            is_urgent=True,
+            kind="alert",
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/api/customer/alerts", headers=_session_header(customer.customer_id, customer.email)
+    )
+
+    assert response.status_code == 200
+    alerts = response.json()["alerts"]
+    assert len(alerts) == 2
+    # Newest (r2, inserted second) first.
+    assert alerts[0]["review_id"] == "r2"
+    assert alerts[0]["is_urgent"] is True
+    assert alerts[0]["response_text"] == "Przepraszamy."
+    assert alerts[0]["review_text"] == "Fatalnie"
+    assert alerts[1]["review_id"] == "r1"
+    assert alerts[1]["is_urgent"] is False
+
+
+def test_alerts_only_returns_own_customers_alerts(db_session, auth_settings) -> None:
+    db_session.add(Place(place_id="p-shared", name="Wspólne Miejsce"))
+    db_session.add(Review(review_id="r-shared", place_id="p-shared", rating=5, text="Super"))
+    db_session.commit()
+    customer_a = _seed_customer(db_session, email="owner-a@example.com", place_id="p-shared")
+    customer_b = _seed_customer(db_session, email="owner-b@example.com")
+
+    db_session.add(
+        Alert(
+            customer_id=customer_a.customer_id,
+            review_id="r-shared",
+            response_text="Dzięki!",
+            is_urgent=False,
+            kind="digest",
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/api/customer/alerts", headers=_session_header(customer_b.customer_id, customer_b.email)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["alerts"] == []
+
+
+# --- POST /api/customer/preview-maps-url ----------------------------------------------------
+
+
+def test_preview_maps_url_requires_auth(db_session, auth_settings) -> None:
+    response = client.post(
+        "/api/customer/preview-maps-url", json={"maps_url": "https://maps.google.com/x"}
+    )
+    assert response.status_code == 401
+
+
+@patch("app.routers.customer.parse_maps_url")
+def test_preview_maps_url_returns_parsed_result(
+    mock_parse: MagicMock, db_session, auth_settings
+) -> None:
+    mock_parse.return_value = ParsedMapsUrl(place_id="resolved-id", suggested_query="Nazwa Z Url")
+    customer = _seed_customer(db_session, email="preview1@example.com")
+
+    response = client.post(
+        "/api/customer/preview-maps-url",
+        json={"maps_url": "https://maps.app.goo.gl/abc123"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"place_id": "resolved-id", "suggested_query": "Nazwa Z Url"}
+    mock_parse.assert_called_once_with("https://maps.app.goo.gl/abc123")
+
+
+@patch("app.routers.customer.parse_maps_url")
+def test_preview_maps_url_does_not_connect_anything(
+    mock_parse: MagicMock, db_session, auth_settings
+) -> None:
+    mock_parse.return_value = ParsedMapsUrl(place_id="resolved-id", suggested_query="Nazwa")
+    customer = _seed_customer(db_session, email="preview2@example.com")
+
+    client.post(
+        "/api/customer/preview-maps-url",
+        json={"maps_url": "https://maps.google.com/maps/place/Nazwa/@1,2,3z"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    db_session.refresh(customer)
+    assert customer.place_id is None
+    assert customer.connected_at is None
 
 
 # --- POST /api/customer/connect-place ------------------------------------------------------------

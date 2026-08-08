@@ -65,3 +65,27 @@ def send_email(
 def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
     subject, body = render_magic_link_email(magic_link_url)
     send_email(to_email, subject, body)
+
+
+def get_message_delivery_status(message_id: str) -> str | None:
+    """Best-effort Postmark delivery status for one outbound message (SPRINT_05.md ticket 5.6's
+    admin customers detail: "Postmark delivery status of last 5 alerts via message IDs"). Always
+    returns None rather than raising — no token configured, the message isn't found, or any
+    request/response error — so a single Postmark hiccup degrades this one admin-only signal
+    instead of breaking the whole detail page (the ticket's own instruction: "degrade gracefully
+    if Postmark errors")."""
+    if not settings.postmark_token:
+        return None
+    try:
+        response = httpx.get(
+            f"https://api.postmarkapp.com/messages/outbound/{message_id}/details",
+            headers={
+                "X-Postmark-Server-Token": settings.postmark_token,
+                "Accept": "application/json",
+            },
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        return response.json().get("Status")
+    except httpx.HTTPError:
+        return None

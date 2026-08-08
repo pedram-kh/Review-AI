@@ -243,17 +243,19 @@ def run_day_one_for_customer(
         on_progress("No new drafts (all qualifying reviews already alerted) — no digest sent.")
         return result
 
-    subject, body = render_welcome_digest(digest_items)
+    subject, text_body, html_body = render_welcome_digest(digest_items)
     if WELCOME_DIGEST_APPROVED_ON is None:
         on_progress(
-            "WELCOME_DIGEST_APPROVED_ON unset (ticket 5.4 pending) — digest composed but not "
-            "sent. Preview:"
+            "WELCOME_DIGEST_APPROVED_ON unset (ticket 5.4 pending Stakeholder/PM review of the "
+            "live proof) — digest composed but not sent. Preview:"
         )
         on_progress(f"Subject: {subject}")
-        on_progress(body)
+        on_progress(text_body)
         return result
 
-    message_id = send_email(customer.notification_email or customer.email, subject, body)
+    message_id = send_email(
+        customer.notification_email or customer.email, subject, text_body, html_body
+    )
     result["digest_sent"] = message_id is not None
     result["postmark_message_id"] = message_id
     if message_id:

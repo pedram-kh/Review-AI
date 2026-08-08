@@ -324,7 +324,7 @@ def run_poll_customers(
         alerts_today_count[customer.customer_id] += 1
         result["new_alerts"] += 1
 
-        subject, body = render_alert_email(
+        subject, text_body, html_body = render_alert_email(
             place_name=place.name,
             rating=review.rating,
             review_text=review.text or "",
@@ -334,12 +334,14 @@ def run_poll_customers(
         )
         if ALERT_EMAIL_APPROVED_ON is None:
             on_progress(
-                f"ALERT_EMAIL_APPROVED_ON unset (ticket 5.4 pending) — alert composed but not "
-                f"sent for review {review.review_id}."
+                "ALERT_EMAIL_APPROVED_ON unset (ticket 5.4 pending Stakeholder/PM review of the "
+                f"live proof) — alert composed but not sent for review {review.review_id}."
             )
             continue
 
-        message_id = send_email(customer.notification_email or customer.email, subject, body)
+        message_id = send_email(
+            customer.notification_email or customer.email, subject, text_body, html_body
+        )
         if message_id:
             session.execute(
                 update(Alert)

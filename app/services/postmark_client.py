@@ -19,12 +19,16 @@ logger = logging.getLogger(__name__)
 POSTMARK_SEND_URL = "https://api.postmarkapp.com/email"
 
 
-def send_email(to_email: str, subject: str, text_body: str) -> str | None:
-    """Generic transactional send, shared by every Postmark caller (magic-link today; the
-    SPRINT_05.md ticket 5.1 day-one digest and ticket 5.2's alert emails next). Same env-gate as
-    the rest of this module: returns None and only logs while POSTMARK_TOKEN is unset, otherwise
-    sends for real and returns Postmark's MessageID (so callers like app/jobs/day_one.py can
-    persist it on their own DB rows)."""
+def send_email(
+    to_email: str, subject: str, text_body: str, html_body: str | None = None
+) -> str | None:
+    """Generic transactional send, shared by every Postmark caller (magic-link; the SPRINT_05.md
+    ticket 5.1 day-one digest and ticket 5.2's alert emails). Same env-gate as the rest of this
+    module: returns None and only logs while POSTMARK_TOKEN is unset, otherwise sends for real
+    and returns Postmark's MessageID (so callers like app/jobs/day_one.py can persist it on their
+    own DB rows). `html_body` is optional and additive (ticket 5.4: "plain-text alternative parts
+    included") — every call keeps sending TextBody either way, so a caller that never passes
+    html_body (the magic-link email) is unaffected."""
     if not settings.postmark_token:
         logger.info(
             "POSTMARK_TOKEN unset — not sending %r to %s; body would be:\n%s",
@@ -34,6 +38,16 @@ def send_email(to_email: str, subject: str, text_body: str) -> str | None:
         )
         return None
 
+    payload = {
+        "From": f"{settings.postmark_from_name} <{settings.postmark_from_email}>",
+        "To": to_email,
+        "Subject": subject,
+        "TextBody": text_body,
+        "MessageStream": "outbound",
+    }
+    if html_body is not None:
+        payload["HtmlBody"] = html_body
+
     response = httpx.post(
         POSTMARK_SEND_URL,
         headers={
@@ -41,13 +55,7 @@ def send_email(to_email: str, subject: str, text_body: str) -> str | None:
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
-        json={
-            "From": f"{settings.postmark_from_name} <{settings.postmark_from_email}>",
-            "To": to_email,
-            "Subject": subject,
-            "TextBody": text_body,
-            "MessageStream": "outbound",
-        },
+        json=payload,
         timeout=10.0,
     )
     response.raise_for_status()

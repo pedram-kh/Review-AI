@@ -120,6 +120,11 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 - **Alert scope:** EVERY new review gets a response draft. Urgency flag: rating ≤3 → "PILNE"
   styling + subject prefix. Positive reviews (≥4) get a thank-you variant draft (§7 rules apply;
   structure swaps apology→thanks; 40–90 words).
+- **Star-only / `<20`-char reviews (prompt KROK 0a, v1.4+):** 25–50 words, warm and generic; brief
+  regret only when rating ≤3; never invent dishes, service details, visit course, or name the
+  address/location. Language: review text gives no signal, so the response defaults to Polish — the
+  restaurant's local language (v1.4.1). Persona city is derived from `places.city` via the
+  `<restauracja miasto="...">` attribute, never interpolated inline (Polish locative declension).
 - **Public promise wording:** "w ciągu maksymalnie 2 godzin" (NOT "w ciągu godziny") — landing,
   outreach template, and alert emails must all match the real cycle.
 - **Day-one value:** on connect, generate drafts for the customer's existing recent reviews and
@@ -154,6 +159,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-09 | §8a: star-only / <20-char review rules promoted into LOGIC (KROK 0a — 25–50 words, regret only at ≤3, no invented specifics, Polish default, city from `places.city`). Documents prompt v1.4/v1.4.1 behavior that ticket 5.8 already shipped and tests already pin; no code change, ticket 6.2 | PM (text authored verbatim) |
 | 2026-08-09 | §8a day-one bullet: connect is asynchronous (202 + background job + persisted run state + per-customer run-lock) — forced by a live gateway-timeout failure on a 58s synchronous connect, ticket 6.1 | Stakeholder (pending PM review) |
 | 2026-08-08 | §8a polling bullet: infra note added — classic EventBridge Rule + UTC cron (Scheduler can't target API destinations), code-enforced Warsaw window covers DST edge ticks — accepted | Stakeholder + PM |
 | 2026-08-07 | §8a added (Sprint 5 planning): customer polling 2h/08–23, all-reviews drafts with urgency flags + positive variant, 2-godziny promise wording fix, day-one digest, per-run caps | Stakeholder + PM |

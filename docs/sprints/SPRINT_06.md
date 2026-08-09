@@ -42,3 +42,72 @@ than a numbered ticket in the closed sprint.
 **Note carried over, not touched by this CR:** the outreach template (Sprint 2) says only "14 dni
 bezpłatnie" with no card mention either way — the 86 queued outreach messages stay valid as-is, no
 re-assembly needed (per the Stakeholder's own note on this change).
+
+---
+
+## 6.1 — Connect-place async-202 (bug fix)
+
+**Origin:** Stakeholder-reported bug with a screenshot, 2026-08-09. Landed before this sprint file
+had a section for it — the full specification, evidence and PM verdict live in the 6.1 row of
+`docs/PROGRESS.md`'s current-sprint table. Recorded here so the sprint's ticket sequence reads
+CR-1 → 6.1 → 6.2 rather than skipping a number.
+
+**One-line summary:** `POST /api/customer/connect-place` ran a ~58s day-one job inline behind a
+Netlify function capped at 10s, so a connect that had actually succeeded showed the customer a raw
+`Unexpected token '<'...` parse error. Fixed with 202 + a background job + persisted run state
+(migration 009) + a per-customer run-lock, plus a guarded JSON parse in the app. Deployed and
+live-verified in production the same day. ✅ ACCEPTED (PM, 2026-08-09).
+
+---
+
+## 6.2 — Review follow-ups + email presentation
+
+**Origin:** PM ticket, 2026-08-09, written after CR-1, 6.1 and 4.6 were all accepted. Closes the
+small gaps those three reviews left open and adds the email-presentation work that had been waiting
+for a natural home.
+
+**Scope, as specified:**
+
+**A. Frontend error-handling sweep — completes 6.1's partial fix.** 6.1 guarded
+`ConnectRestaurantFlow.tsx` only. Audit *all* of `reviewguide-app` for fetches that call `.json()`
+before checking `response.ok` / content-type, and migrate every remaining one to 6.1's `readJson`
+pattern via a **shared helper, not copy-paste**. Readable Polish on customer-facing surfaces, plain
+English on `/admin`. List every file touched.
+
+**B. Test-account convention — from 6.1's review.** A short "Production test accounts" paragraph in
+`RUNBOOK_LEADS.md`'s ops section, or `LOGIC.md` if a better home exists (say which and why): test
+accounts are always `is_test=true` from creation, always deleted after the test, and never created
+against a restaurant a real customer has connected. State explicitly, citing the 5.2/5.7 run
+summaries, that `is_test=true` does **not** exclude an account from polling or digests — it only
+excludes it from real-customer metrics.
+
+**C. Customer 16 flag — PM decision, ratified.** Set `is_test=true` on `customers.customer_id=16`
+(`ppedram.kh@gmail.com`). Verify the running-metrics "real customers" derivation reads **0 real /
+3 test** afterwards. Update the Sprint 6 open-questions list and PROGRESS.md's running metrics.
+
+**D. LOGIC.md §8a doc sync — PM-owned text, pasted verbatim.** Add the star-only / <20-char review
+bullet (KROK 0a, v1.4+: 25–50 words, regret only at ≤3, no invented specifics, Polish default,
+persona city from `places.city` via the `<restauracja miasto="...">` attribute). Confirm the
+doc-parity tests still pin the code side.
+
+**E. Email UI polish — magic link + digest + alert.**
+1. Magic-link email keeps its exact content (4 lines, PL, no marketing) but gains a minimal branded
+   HTML template: dark header bar with the icon (**hosted** from `https://reviewguide.eu/icon-192.png`,
+   not an attachment) + "ReviewGuide" wordmark, body on white/near-white, the link as a button
+   ("Zaloguj się do ReviewGuide") with the raw URL printed below as a fallback, and a one-line
+   footer naming the `mail.reviewguide.eu` sender. The plain-text multipart alternative MUST remain,
+   same 4 lines.
+2. Same header/footer frame on the digest and alert templates; their content and PILNE styling
+   unchanged.
+3. Constraints: tables + inline styles only, no external CSS, no webfonts, HTML < 50KB per email,
+   renders acceptably in Gmail web + iOS Mail.
+4. **CRITICAL:** token/link mechanics stay byte-identical — presentation only. The Sprint 4
+   prescan-proof interstitial must be **re-proven, not assumed**: send one real magic-link email to
+   `pedram@reviewguide.eu`, confirm `used_at` stays NULL until the human click, then complete the
+   login.
+5. Screenshots of all three styled emails in the summary.
+
+**Done when:** backend tests green (noting the `test_health` tunnel caveat), frontend build +
+Playwright green, grep proof for Part A, the LOGIC.md diff, and Part E's live-send evidence.
+
+**Full evidence:** see the 6.2 row in `docs/PROGRESS.md`'s current-sprint table.

@@ -77,20 +77,29 @@ kliknij, aby zalogować się do ReviewGuide:
 
 Link jest ważny 15 minut i można go użyć tylko raz."""
 
-
-def render_magic_link_email(magic_link_url: str) -> tuple[str, str]:
-    return MAGIC_LINK_EMAIL_SUBJECT, MAGIC_LINK_EMAIL_BODY_TEMPLATE.format(
-        magic_link_url=magic_link_url
-    )
+MAGIC_LINK_BUTTON_LABEL = "Zaloguj się do ReviewGuide"
 
 
-# --- Shared HTML email chrome (ticket 5.4) -----------------------------------------------------
+# --- Shared HTML email chrome (ticket 5.4, branded frame added in 6.2) -------------------------
 #
-# No external images (deliverability — SPRINT_05.md ticket 5.4's own instruction): everything
-# here is inline-styled markup, nothing fetched from a URL. All user-supplied text (review text,
-# generated response) MUST go through _escape_html before landing in an HTML string — reviews are
-# untrusted third-party content scraped from Google, so this is a real injection boundary, not
-# just tidiness.
+# All user-supplied text (review text, generated response) MUST go through _escape_html before
+# landing in an HTML string — reviews are untrusted third-party content scraped from Google, so
+# this is a real injection boundary, not just tidiness.
+#
+# EXTERNAL IMAGE POLICY CHANGED IN 6.2 — disclosed, because it reverses ticket 5.4's instruction.
+# 5.4 said "no external images" for deliverability, and until now nothing here was fetched from a
+# URL. Ticket 6.2 asks for the brand icon "hosted from https://reviewguide.eu/icon-192.png, not an
+# attachment", which is a remote image by definition. Both goals are satisfied by never letting the
+# image carry information: the wordmark beside it is live text, so a client that blocks remote
+# images (Outlook desktop by default, Gmail with "ask before displaying") still shows a dark
+# ReviewGuide header rather than a broken-image gap where the branding should be. An attachment
+# would have been the other option and is worse — inline CID attachments push every email into
+# multipart/related, weigh more, and are what bulk senders do.
+#
+# Layout is tables + inline styles only (6.2's constraint): Outlook renders via Word's HTML engine,
+# which ignores max-width, flex, and most div-based layout, so a table with a fixed-width inner
+# cell is the only structure that holds up across clients. No <style> block, no external CSS, no
+# webfonts — _HTML_FONT_STACK is system fonts, which every client already has.
 def _app_link() -> str:
     """`{app_origin}/app`, read live on every call rather than cached — this was a real bug
     (ticket 5.4 PM review, 2026-08-08), third in the APP_ORIGIN-config family after 4.2's
@@ -114,6 +123,14 @@ _HTML_FONT_STACK = (
     "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 )
 
+# Deliberately an absolute literal rather than derived from settings.app_origin: this is the
+# marketing site's asset (reviewguide.eu), not the app deployment's (app.reviewguide.eu), and
+# deriving it would put this constant in the same family of bugs as _app_link() below — a local
+# .env would render <img src="http://localhost:3000/icon-192.png"> into a real customer's inbox.
+_BRAND_ICON_URL = "https://reviewguide.eu/icon-192.png"
+_BRAND_BAR_BACKGROUND = "#111111"
+_PAGE_BACKGROUND = "#f4f4f5"
+
 
 def _escape_html(text: str) -> str:
     return html_lib.escape(text.strip()).replace("\n", "<br>")
@@ -130,10 +147,57 @@ def _html_copy_block(text: str, *, background: str, border: str) -> str:
     )
 
 
-def _html_wrapper(inner: str) -> str:
+def _html_brand_header() -> str:
+    """Dark bar: icon + wordmark. The wordmark is text, not part of the image, so the header still
+    reads as ReviewGuide when remote images are blocked (see the module note above). `alt` covers
+    the clients that show alt text in the gap; explicit width/height stop Outlook from rendering
+    the intrinsic 192px."""
     return (
-        '<div style="font-family:' + _HTML_FONT_STACK + ";max-width:600px;margin:0 auto;"
-        'padding:24px;color:#1a1a1a;font-size:15px;line-height:1.5;">' + inner + "</div>"
+        f'<tr><td style="background:{_BRAND_BAR_BACKGROUND};padding:18px 24px;">'
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
+        '<td style="padding-right:10px;vertical-align:middle;line-height:0;">'
+        f'<img src="{_BRAND_ICON_URL}" width="28" height="28" alt="ReviewGuide" '
+        'style="display:block;width:28px;height:28px;border:0;border-radius:6px;"></td>'
+        '<td style="vertical-align:middle;font-family:' + _HTML_FONT_STACK + ";font-size:17px;"
+        'font-weight:700;color:#ffffff;">ReviewGuide</td>'
+        "</tr></table></td></tr>"
+    )
+
+
+def _html_brand_footer() -> str:
+    return (
+        '<tr><td style="border-top:1px solid #ececef;padding:16px 24px;font-family:'
+        + _HTML_FONT_STACK
+        + ';font-size:12px;line-height:1.5;color:#8a8a8f;">'
+        f"Wiadomość wysłana automatycznie z {settings.postmark_from_email} — na ten adres nie "
+        "trzeba odpowiadać."
+        "</td></tr>"
+    )
+
+
+def _html_wrapper(inner: str) -> str:
+    """Wraps a body fragment in the branded frame (ticket 6.2). `inner` is passed through byte for
+    byte, which is what keeps the digest's and alert's own content — including the PILNE styling —
+    exactly as ticket 5.4 approved it; only the chrome around it is new.
+
+    Two nested tables: the outer one paints the page background edge to edge (a body-level
+    background is not reliable in email), the inner one is the fixed 600px card. `width="600"` as
+    an attribute for Outlook, `max-width` in the style for everything else."""
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        f'style="background:{_PAGE_BACKGROUND};margin:0;padding:0;width:100%;">'
+        '<tr><td align="center" style="padding:24px 12px;">'
+        '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" '
+        'style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e4e4e7;'
+        'border-radius:10px;overflow:hidden;">'
+        + _html_brand_header()
+        + '<tr><td style="padding:24px;font-family:'
+        + _HTML_FONT_STACK
+        + ';color:#1a1a1a;font-size:15px;line-height:1.5;">'
+        + inner
+        + "</td></tr>"
+        + _html_brand_footer()
+        + "</table></td></tr></table>"
     )
 
 
@@ -152,6 +216,42 @@ def _html_app_link_button() -> str:
         "background:#111;color:#fff;text-decoration:none;padding:10px 20px;border-radius:999px;"
         'font-weight:600;">Otwórz panel ReviewGuide</a></p>'
     )
+
+
+def render_magic_link_email(magic_link_url: str) -> tuple[str, str, str]:
+    """(subject, text_body, html_body) for the login email.
+
+    `text_body` is MAGIC_LINK_EMAIL_BODY_TEMPLATE rendered unchanged — the same four lines ticket
+    4.2 specified, byte for byte. Ticket 6.2 only added `html_body`, and the plain-text part stays
+    a real multipart alternative rather than a fallback nobody maintains: it is what Postmark sends
+    as TextBody on every send, and it is the version a client with HTML disabled logs in from.
+
+    The URL is escaped with `quote=True` because it lands in an `href` attribute — it carries a
+    signed token, and while the tokens we generate are URL-safe, escaping at the boundary is what
+    makes that a property of this function instead of an assumption about its caller.
+    """
+    escaped_url = html_lib.escape(magic_link_url, quote=True)
+    html_body = _html_wrapper(
+        '<p style="margin:0 0 16px;">Cześć,</p>'
+        '<p style="margin:0 0 24px;">kliknij, aby zalogować się do ReviewGuide:</p>'
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        'style="margin:0 0 24px;"><tr>'
+        f'<td style="background:{_BRAND_BAR_BACKGROUND};border-radius:999px;">'
+        f'<a href="{escaped_url}" style="display:inline-block;padding:13px 26px;color:#ffffff;'
+        "text-decoration:none;font-family:" + _HTML_FONT_STACK + ";font-size:15px;"
+        f'font-weight:600;">{MAGIC_LINK_BUTTON_LABEL}</a></td>'
+        "</tr></table>"
+        # The one string 6.2 adds beyond the four approved lines, HTML side only: a bare URL sitting
+        # under a button reads as debris, and the ticket asks for it to work AS a fallback.
+        '<p style="margin:0 0 6px;font-size:13px;color:#6b6b70;">Jeśli przycisk nie działa, '
+        "skopiuj ten adres do przeglądarki:</p>"
+        f'<p style="margin:0 0 24px;font-size:13px;line-height:1.45;word-break:break-all;">'
+        f'<a href="{escaped_url}" style="color:#1a5fd0;">{escaped_url}</a></p>'
+        '<p style="margin:0;color:#6b6b70;font-size:14px;">Link jest ważny 15 minut i można go '
+        "użyć tylko raz.</p>"
+    )
+    text_body = MAGIC_LINK_EMAIL_BODY_TEMPLATE.format(magic_link_url=magic_link_url)
+    return MAGIC_LINK_EMAIL_SUBJECT, text_body, html_body
 
 
 # --- Welcome digest (SPRINT_05.md ticket 5.1's day-one job) -----------------------------------

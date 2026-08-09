@@ -104,6 +104,12 @@ places): 150–250 leads. Don't open a new district while >100 leads sit queued 
 | Contact enrichment | $3 / 1k domains | cap 1,000/run |
 | Everything | printed estimate first | `--yes` required to spend |
 
+**Test customer accounts still cost money.** `customers.is_test=true` excludes an account from
+real-customer metrics and nothing else — it does not exclude it from polling, Claude spend, or
+alert/digest emails. The convention for creating and cleaning up production test accounts lives in
+`WORKFLOW.md` §4 ("Production test accounts"); it sits there rather than here because this runbook
+covers the System A lead pipeline, while test accounts are System B customer records.
+
 ## 6. New CITY (beyond Warsaw)
 
 Stakeholder gate decision (ROADMAP G4 territory) — not just config: means new sub-area research,
@@ -124,5 +130,6 @@ at a sprint boundary; mechanically it's Scenario B with a new city's districts.
 
 | Date | Change |
 |---|---|
+| 2026-08-09 | §5: pointer to `WORKFLOW.md` §4's production-test-account convention, plus the warning that `is_test=true` does not stop an account from being polled or emailed (ticket 6.2) |
 | 2026-08-07 | Bastion tunnel prerequisite added ahead of Scenario A/B commands — RDS went private as part of the ticket 4.4 security cutover, so direct DB access now requires the SSM bastion bridge documented in `CUTOVER.md` §Step 0 |
 | 2026-08-07 | v1 created (Stakeholder request during Sprint 3 UAT) |

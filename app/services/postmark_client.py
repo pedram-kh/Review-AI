@@ -63,8 +63,11 @@ def send_email(
 
 
 def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
-    subject, body = render_magic_link_email(magic_link_url)
-    send_email(to_email, subject, body)
+    # Ticket 6.2: now sends HtmlBody too. TextBody is the same four lines as before, so a client
+    # with HTML disabled sees exactly what it saw yesterday — and the link mechanics are untouched
+    # either way, since both parts carry the same `magic_link_url` this function was handed.
+    subject, text_body, html_body = render_magic_link_email(magic_link_url)
+    send_email(to_email, subject, text_body, html_body)
 
 
 def get_message_delivery_status(message_id: str) -> str | None:

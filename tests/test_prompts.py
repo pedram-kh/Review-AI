@@ -15,6 +15,7 @@ from app.prompts import (
 )
 
 SPRINT_02 = Path(__file__).resolve().parents[1] / "docs" / "sprints" / "SPRINT_02.md"
+LOGIC = Path(__file__).resolve().parents[1] / "docs" / "LOGIC.md"
 PROMPT_HEADING = re.compile(r"^## Prompt v(?P<version>[\d.]+)")
 
 
@@ -87,6 +88,18 @@ def test_prompt_carries_the_star_only_branch() -> None:
     assert "KROK 0a" in RESPONSE_PROMPT
     assert "25–50 słów" in RESPONSE_PROMPT
     assert "krótsze niż 20 znaków" in RESPONSE_PROMPT
+
+
+def test_logic_md_star_only_bullet_matches_the_prompt() -> None:
+    # Ticket 6.2 put the star-only rules into LOGIC.md §8a, which made them true in three places at
+    # once (LOGIC, SPRINT_02's pinned prompt text, and the constant). The two prompt copies are
+    # already pinned to each other above; this pins the third, so a future prompt change cannot
+    # silently leave the canonical business-rules doc describing behavior the model no longer has.
+    logic = LOGIC.read_text(encoding="utf-8")
+    assert "KROK 0a" in logic
+    assert "25–50 words" in logic
+    assert "20`-char" in logic  # the <20-char threshold LOGIC states, matching "20 znaków"
+    assert 'miasto="..."' in logic
 
 
 def test_render_omits_health_flag_suffix_for_normal_lead() -> None:

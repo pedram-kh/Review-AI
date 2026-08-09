@@ -49,6 +49,28 @@
 - **Blockers are logged immediately** in `PROGRESS.md` under the sprint's Blockers section, then raised to the PM in chat.
 - **Sync discipline:** at the end of every review cycle, the Stakeholder re-uploads the updated `PROGRESS.md` and `ROADMAP.md` to the Claude Project so the PM's context is never stale.
 
+### Production test accounts (convention, added 2026-08-09 — ticket 6.2)
+
+Live verification against production is expected (see §3 rule 5, "the demo test"), and it usually
+needs a customer record. Three rules, every time:
+
+1. **`is_test=true` from the moment of creation** — never set afterwards. A row that is real for even
+   a minute pollutes whatever metric is read in that minute, and nobody remembers to go back.
+2. **Deleted after the test**, along with the rows it produced (its alerts especially). Tickets
+   4.2/4.3/4.5, CR-1 and 6.1 all did this; it is the norm, not a courtesy.
+3. **Never against a restaurant a real customer has connected.** Two customers on one `place_id`
+   share reviews, so a test run consumes the idempotency the real customer's own drafts depend on —
+   the reviews get marked as alerted for the test account and the real one may never see them.
+
+**`is_test=true` does NOT quarantine the account from the product.** It is read in exactly one place:
+`app/routers/admin_customers.py`, which surfaces it to `/admin`. The poller selects purely on
+`subscription_status in ("trialing", "active")` and never looks at the flag, so a test account is
+polled every 2h, spends real Claude money, and receives real alert and digest emails. Both are
+matters of record, not inference: ticket 5.2's milestone evidence *is* a test account's unattended
+poll run, and 5.7's two backfilled digests (10 drafts each) were delivered to test accounts. Treat
+the flag as "exclude from real-customer counts", nothing more — if an account must stop costing
+money, cancel its subscription or delete it.
+
 ## 5. Definitions
 
 - **Ticket** — smallest reviewable unit of work (≤ half a day of Cursor time).

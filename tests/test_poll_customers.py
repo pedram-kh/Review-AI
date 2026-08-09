@@ -65,10 +65,14 @@ def _seed_review(
 
 
 def _seed_customer(
-    db_session, *, email="owner@example.com", place_id="p1", status="trialing"
+    db_session, *, email="owner@example.com", place_id="p1", status="trialing", is_test=False
 ) -> Customer:
     customer = Customer(
-        email=email, notification_email=email, place_id=place_id, subscription_status=status
+        email=email,
+        notification_email=email,
+        place_id=place_id,
+        subscription_status=status,
+        is_test=is_test,
     )
     db_session.add(customer)
     db_session.commit()
@@ -111,6 +115,21 @@ def test_no_eligible_customers_is_a_noop(db_session) -> None:
 
     assert result["customers_considered"] == 0
     assert result["aborted"] is False
+
+
+def test_test_accounts_are_still_polled(db_session) -> None:
+    """Migration 007's is_test marks accounts for counting purposes only — it deliberately does
+    NOT gate eligibility. The Stakeholder's flagged walkthrough accounts are the only live proof
+    the unattended poller works end-to-end (they are what produced ticket 5.2's two-customer
+    evidence), so excluding them would delete the monitoring, not just tidy the metrics. Locked
+    in as a test because "flag exists, therefore filter on it" is the obvious wrong next edit.
+    """
+    _seed_place(db_session)
+    _seed_customer(db_session, is_test=True)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["customers_considered"] == 1
 
 
 @patch("app.jobs.poll_customers.ClaudeClient")

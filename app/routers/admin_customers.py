@@ -36,6 +36,9 @@ class CustomerListItem(BaseModel):
     subscription_status: str
     connected_at: datetime | None
     last_alert_at: datetime | None
+    # Migration 007. Surfaced rather than filtered on: the ops view should show every row and let
+    # a human read "1 real + 2 test", not quietly hide accounts from the only page that lists them.
+    is_test: bool
 
 
 class CustomerPlaceInfo(BaseModel):
@@ -76,6 +79,7 @@ class CustomerDetail(BaseModel):
     subscription_status: str
     created_at: datetime
     connected_at: datetime | None
+    is_test: bool
     place: CustomerPlaceInfo | None
     alerts: list[CustomerAlertHistoryItem]
     recent_delivery_statuses: list[DeliveryStatusItem]
@@ -108,6 +112,7 @@ def list_customers(session: Session = Depends(get_session)) -> list[CustomerList
             subscription_status=customer.subscription_status,
             connected_at=customer.connected_at,
             last_alert_at=last_alert_at,
+            is_test=customer.is_test,
         )
         for customer, place_name, last_alert_at in session.execute(stmt).all()
     ]
@@ -184,6 +189,7 @@ def get_customer_detail(
         subscription_status=customer.subscription_status,
         created_at=customer.created_at,
         connected_at=customer.connected_at,
+        is_test=customer.is_test,
         place=place,
         alerts=alerts,
         recent_delivery_statuses=delivery_statuses,

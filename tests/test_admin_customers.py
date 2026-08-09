@@ -46,6 +46,7 @@ def _seed_customer(db_session, **overrides) -> Customer:
         subscription_status=overrides.pop("subscription_status", "trialing"),
         tone_preference=overrides.pop("tone_preference", "formal"),
         connected_at=overrides.pop("connected_at", None),
+        is_test=overrides.pop("is_test", False),
     )
     assert not overrides, f"unused overrides: {overrides}"
     db_session.add(customer)
@@ -323,3 +324,48 @@ def test_get_customer_detail_skips_delivery_lookup_when_no_message_id(db_session
 
     assert response.status_code == 200
     assert response.json()["recent_delivery_statuses"] == []
+
+
+# --- is_test (migration 007) -----------------------------------------------------------------
+
+
+def test_is_test_defaults_to_false_so_a_real_signup_is_never_mis_flagged(db_session) -> None:
+    """The whole point of the flag is that the default direction is safe: an account nobody
+    touched must read as real, never as test. Inserts without the column set at all (the shape
+    app/routers/auth.py's lazy signup actually uses) rather than passing is_test=False, which
+    would test the argument instead of the schema default.
+    """
+    customer = Customer(email="organic@example.com", subscription_status="trialing")
+    db_session.add(customer)
+    db_session.commit()
+    db_session.refresh(customer)
+
+    assert customer.is_test is False
+
+
+@with_admin_key
+def test_list_marks_test_accounts_without_hiding_them(db_session) -> None:
+    """Marks, does not filter — an ops view that silently omits rows is worse than one that
+    labels them, since the omission is invisible. A human reads "1 real + 1 test" off this.
+    """
+    _seed_customer(db_session, email="real@example.com", is_test=False)
+    _seed_customer(db_session, email="walkthrough@example.com", is_test=True)
+
+    response = client.get("/api/admin/customers", headers=HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {row["email"]: row["is_test"] for row in body} == {
+        "real@example.com": False,
+        "walkthrough@example.com": True,
+    }
+
+
+@with_admin_key
+def test_detail_exposes_is_test(db_session) -> None:
+    customer = _seed_customer(db_session, is_test=True)
+
+    response = client.get(f"/api/admin/customers/{customer.customer_id}", headers=HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["is_test"] is True

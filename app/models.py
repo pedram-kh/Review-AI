@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Text,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -63,6 +73,10 @@ class Customer(Base):
     # Set once, at connect-place time (LOGIC.md §8a). Distinct from created_at (account signup) —
     # a customer can sign up and browse before ever connecting a restaurant.
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Migration 007: marks the Stakeholder's own walkthrough accounts so customer counts can tell
+    # traction from testing. Marks only — test rows are still polled and still receive alerts,
+    # since they are the live proof the poller works (see the migration's own docstring).
+    is_test: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
 
 
 class AuthToken(Base):

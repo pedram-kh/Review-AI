@@ -112,7 +112,7 @@ def test_checkout_creates_stripe_customer_and_session(db_session, billing_settin
     assert checkout_kwargs["mode"] == "subscription"
     assert checkout_kwargs["line_items"] == [{"price": TEST_STRIPE_PRICE_ID, "quantity": 1}]
     assert checkout_kwargs["subscription_data"] == {"trial_period_days": 14}
-    assert checkout_kwargs["payment_method_collection"] == "if_required"
+    assert checkout_kwargs["payment_method_collection"] == "always"
 
     db_session.refresh(customer)
     assert customer.stripe_customer_id == "cus_new123"

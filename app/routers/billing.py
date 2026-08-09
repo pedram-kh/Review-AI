@@ -97,8 +97,10 @@ def create_checkout_session(
         mode="subscription",
         line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
         subscription_data={"trial_period_days": 14},
-        # Trial without a card up front — the ticket's explicit "no card required" requirement.
-        payment_method_collection="if_required",
+        # Card required upfront (Stakeholder decision, 2026-08-09 — see ROADMAP.md decisions
+        # log): auto-converts to paid at day 14 with no second action from the customer. Was
+        # "if_required" (cardless trial) through Sprint 4/5; changed here as ticket 5.9/CR-1.
+        payment_method_collection="always",
         success_url=f"{settings.app_origin}/app?checkout=success",
         cancel_url=f"{settings.app_origin}/app?checkout=cancelled",
     )

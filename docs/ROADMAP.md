@@ -37,7 +37,7 @@ pointed at paying customers' profiles.
 | Frontend hosting | **Netlify free tier** (both frontends) | marketing = static export → zero runtime issues |
 | Framework | **Next.js + React** (both frontends) | Cursor strongest here |
 | Auth | Magic link (app repo, Sprint 4) | Restaurant owners forget passwords |
-| Billing | **Stripe** Checkout + Customer Portal | 14-day trial, no card. Single plan 99–149 zł/mo |
+| Billing | **Stripe** Checkout + Customer Portal | 14-day trial, **card required upfront**, auto-converts day 14. 129 zł/mo (G3) |
 | Email delivery | **Postmark** (subdomain sender, e.g. mail.domain.pl) | Deliverability is a product feature |
 
 **Repo map:** `backend` (FastAPI, this docs folder lives here) · `app` (Next.js: customer panel + /admin) · `marketing` (Next.js static landing). Docs stay in `backend/docs/` as the single source; other repos link to it.
@@ -48,11 +48,11 @@ pointed at paying customers' profiles.
 |---|---|---|---|---|
 | 0 | 2–3 days | Foundations | Script writes a fake lead into production DB | ✅ Closed |
 | 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ✅ Closed (213 leads) |
-| 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | ✅ Closed (86 queued/sendable) |
+| 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | 🟡 2.4/2.5 ⏸ external-gated |
 | 3 | 1 week | Internal dashboard + outreach starts | First 10–20 sends via dashboard; reply tracking live | 🔵 ACTIVE (parallel) |
 | 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | 🔵 ACTIVE (parallel) |
-| 5 | 1 week | Value delivery (launch) | Connected test restaurant → day-one digest + 2h-cycle alert email with paste-ready response | ✅ Closed |
-| 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | ⚪ Planned |
+| 5 | 1 week | Value delivery (launch) | Connected test restaurant → day-one digest + 2h-cycle alert email with paste-ready response | 🔵 ACTIVE |
+| 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | 🟡 Opened by CR-1 (card-upfront trial); full scoping session still pending |
 
 ## 4. Decision gates ⚠️
 
@@ -67,6 +67,7 @@ pointed at paying customers' profiles.
 
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
+| 2026-08-09 | Trial payment model | CARD REQUIRED UPFRONT at checkout (14-day trial unchanged; auto-converts to paid at day 14; cancel anytime via portal). Landing copy updated to match — "bez karty" removed everywhere. Stakeholder call, PM recommendation (cardless + switch-gate at 10 trials) overruled: UX continuity + auto-conversion prioritized over top-of-funnel volume | Cardless launch (PM pick — cold-funnel trust friction); day-11 nudge middle path |
 | 2026-08-09 | Geographic scope of customer product | OPEN BY DESIGN — any country's restaurant can connect (Outscraper searches globally; v1.4 city-derived persona + KROK 0 language matching handle non-PL gracefully). Ratified by Stakeholder. Known asterisks, accepted: UI/emails/panel are Polish-only; pricing is zł-only; polling window is Warsaw-time; marketing targets PL. Foreign signups are welcome accidents, not a served segment — revisit (i18n, currency, timezone-per-customer) only if they actually appear | Geo-fencing connections to Poland (blocks organic upside for zero benefit) |
 | 2026-08-09 | Outreach quality gate (2.4/2.5) — PLAN B executed | Joint internal review: PM full read of all 40 v1.2 responses (39 SEND / 1 EDIT / 0 BAD; health-flagged all clean; #26 Thai Me Up regenerated for rule-5 admission language) + Stakeholder confirmation; template approved (Anna, maks. 2 godzin wording). Logged honestly as NOT native-verified — revisit prompt/template at first real replies. First batch: 100 leads (40 + 60 new) per Stakeholder pacing choice; remaining 113 on demand via RUNBOOK | Waiting longer for the PL reviewer (missed the Saturday deadline; sending data now beats a fourth day of silence) |
 | 2026-08-07 | Sprint 5 scope (opened ahead of reviewer, same channel-independence logic as Sprint 4) | Polling 2h/08–23 (~$3.60/mo/customer); ALL reviews get drafts (negatives urgent, positives thank-you variant); connect via name-search + link fallback; promise wording fixed to "maks. 2 godzin" everywhere | Hourly 08–23 (~$7/mo — Stakeholder chose margin over headline), 24/7 (alerts at 4am help no one), negatives-only (product that only brings bad news), paste-link-only (setup friction) |

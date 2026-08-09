@@ -21,6 +21,7 @@
 | Multi-location support for restaurant groups | PM suggestion | Post-launch |
 | English/international version | — | Far future |
 | Serious-allegation flag: extend §2-style gating beyond health to crime/theft/harassment/discrimination keyword classes — leads with such reviews never auto-queue | Lead 76 (Mezza Lounge & Bar), 2026-08-09 | Sprint 6 |
+| `/health` returns the git commit sha — deploy evidence today is "the push and the deploy timestamps line up", not a direct read from the running process | Ticket 5.8 deploy verification, 2026-08-09 | Sprint 6 |
 
 ## How to add
 

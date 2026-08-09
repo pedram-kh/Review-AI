@@ -403,3 +403,307 @@ def test_email_is_sent_and_alert_stamped_once_gate_is_flipped(
     alert = db_session.query(Alert).filter_by(review_id="r1").one()
     assert alert.sent_at is not None
     assert alert.postmark_message_id == "msg-456"
+
+
+# --- Ticket 5.7: alert retry/backfill sweep --------------------------------------------------
+#
+# Stakeholder finding, 2026-08-09: a draft whose send failed once (gate closed, or a genuine
+# Postmark error) had no way back into an outbound email — every idempotency check in this
+# codebase is keyed on "does an alerts row exist", not "was it ever delivered". These tests seed
+# `sent_at=None` rows directly (mirroring exactly what a stuck real row in prod looks like) and
+# assert the sweep — not a one-off ops script — is what delivers them.
+#
+# Every test below mocks OutscraperClient to return a `place_id` with NO reviews_data, so Phase 1
+# still runs (proving the sweep survives sharing a run with the rest of the job) but Phase 2 never
+# finds a pending new review — isolating the assertions to the sweep itself.
+
+
+def _seed_alert(
+    db_session,
+    *,
+    customer_id: int,
+    review_id: str,
+    kind: str = "alert",
+    sent_at=None,
+    created_at=None,
+    is_urgent: bool = False,
+    response_text: str = "Dziękujemy za recenzję.",
+) -> Alert:
+    alert = Alert(
+        customer_id=customer_id,
+        review_id=review_id,
+        response_text=response_text,
+        is_urgent=is_urgent,
+        kind=kind,
+        sent_at=sent_at,
+        created_at=created_at or WITHIN_WINDOW,
+    )
+    db_session.add(alert)
+    db_session.commit()
+    db_session.refresh(alert)
+    return alert
+
+
+def _no_new_reviews(mock_outscraper_cls: MagicMock) -> None:
+    mock_outscraper_cls.return_value.fetch_reviews.return_value = [
+        {"place_id": "p1", "reviews_data": []}
+    ]
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_retries_a_previously_unsent_alert(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    _seed_place(db_session)
+    _seed_review(db_session, review_id="r1")
+    customer = _seed_customer(db_session)
+    _seed_alert(db_session, customer_id=customer.customer_id, review_id="r1", sent_at=None)
+    _no_new_reviews(mock_outscraper_cls)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 1
+    mock_claude_cls.return_value.generate_customer_response.assert_not_called()  # no re-spend
+    alert = db_session.query(Alert).filter_by(review_id="r1").one()
+    assert alert.sent_at is not None
+    assert alert.postmark_message_id == "msg-test-autouse"
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_never_retries_an_already_sent_alert(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    _seed_place(db_session)
+    _seed_review(db_session, review_id="r1")
+    customer = _seed_customer(db_session)
+    _seed_alert(
+        db_session,
+        customer_id=customer.customer_id,
+        review_id="r1",
+        sent_at=WITHIN_WINDOW,
+    )
+    _no_new_reviews(mock_outscraper_cls)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 0
+    _mock_send_email.assert_not_called()
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_respects_seven_day_cutoff(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    _seed_place(db_session)
+    _seed_review(db_session, review_id="r1")
+    customer = _seed_customer(db_session)
+    _seed_alert(
+        db_session,
+        customer_id=customer.customer_id,
+        review_id="r1",
+        sent_at=None,
+        created_at=WITHIN_WINDOW - timedelta(days=8),
+    )
+    _no_new_reviews(mock_outscraper_cls)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 0
+    _mock_send_email.assert_not_called()
+    alert = db_session.query(Alert).filter_by(review_id="r1").one()
+    assert alert.sent_at is None
+
+
+@patch("app.jobs.poll_customers.ALERT_EMAIL_APPROVED_ON", None)
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_skips_cleanly_when_gate_closed_and_retries_once_reopened(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    _seed_place(db_session)
+    _seed_review(db_session, review_id="r1")
+    customer = _seed_customer(db_session)
+    _seed_alert(db_session, customer_id=customer.customer_id, review_id="r1", sent_at=None)
+    _no_new_reviews(mock_outscraper_cls)
+
+    closed_result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert closed_result["backfilled"] == 0
+    _mock_send_email.assert_not_called()
+    alert = db_session.query(Alert).filter_by(review_id="r1").one()
+    assert alert.sent_at is None
+
+    with patch("app.jobs.poll_customers.ALERT_EMAIL_APPROVED_ON", "2026-08-09"):
+        reopened_result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert reopened_result["backfilled"] == 1
+    _mock_send_email.assert_called_once()
+    db_session.refresh(alert)
+    assert alert.sent_at is not None
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_retries_a_send_that_failed_again_only_on_the_next_run(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, db_session
+) -> None:
+    """First attempt: Postmark itself fails (returns None, e.g. a transient outage) — the row
+    must stay unsent, not get silently marked done. Second attempt (Postmark healthy): delivered.
+    """
+    _seed_place(db_session)
+    _seed_review(db_session, review_id="r1")
+    customer = _seed_customer(db_session)
+    _seed_alert(db_session, customer_id=customer.customer_id, review_id="r1", sent_at=None)
+    _no_new_reviews(mock_outscraper_cls)
+
+    with patch("app.jobs.poll_customers.send_email", return_value=None) as failing_send:
+        failed_result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+    failing_send.assert_called_once()
+    assert failed_result["backfilled"] == 0
+    alert = db_session.query(Alert).filter_by(review_id="r1").one()
+    assert alert.sent_at is None
+
+    with patch("app.jobs.poll_customers.send_email", return_value="msg-recovered") as ok_send:
+        recovered_result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+    ok_send.assert_called_once()
+    assert recovered_result["backfilled"] == 1
+    db_session.refresh(alert)
+    assert alert.postmark_message_id == "msg-recovered"
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_respects_daily_cap_mid_sweep(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    """8 alert-emails already went out today (created_at today); only 2 of cap remain. 3 stuck
+    alert-kind rows — created YESTERDAY, still unsent (a real re-run scenario, not something
+    created in today's own count) — are swept: exactly 2 get delivered, the 3rd stays unsent and
+    the customer is reported as daily-cap-skipped — proving the cap is enforced ROW BY ROW inside
+    the sweep, not just as an all-or-nothing gate."""
+    _seed_place(db_session)
+    customer = _seed_customer(db_session)
+    for i in range(8):
+        _seed_review(db_session, review_id=f"today{i}")
+        _seed_alert(
+            db_session,
+            customer_id=customer.customer_id,
+            review_id=f"today{i}",
+            sent_at=WITHIN_WINDOW,
+            created_at=WITHIN_WINDOW,
+        )
+    stuck_ids = ["stuck0", "stuck1", "stuck2"]
+    yesterday = WITHIN_WINDOW - timedelta(days=1)
+    for review_id in stuck_ids:
+        _seed_review(db_session, review_id=review_id)
+        _seed_alert(
+            db_session,
+            customer_id=customer.customer_id,
+            review_id=review_id,
+            sent_at=None,
+            created_at=yesterday,
+        )
+    _no_new_reviews(mock_outscraper_cls)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 2
+    assert result["daily_cap_skipped_customers"] == 1
+    sent_count = (
+        db_session.query(Alert)
+        .filter(Alert.review_id.in_(stuck_ids), Alert.sent_at.isnot(None))
+        .count()
+    )
+    assert sent_count == 2
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_delivers_stuck_digest_drafts_in_one_email(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    _seed_place(db_session)
+    customer = _seed_customer(db_session)
+    for i, review_id in enumerate(["d1", "d2", "d3"]):
+        _seed_review(db_session, review_id=review_id, rating=5 - i)
+        _seed_alert(
+            db_session,
+            customer_id=customer.customer_id,
+            review_id=review_id,
+            kind="digest",
+            sent_at=None,
+        )
+    _no_new_reviews(mock_outscraper_cls)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 3
+    _mock_send_email.assert_called_once()  # one email for all 3 drafts, not three
+    sent = db_session.query(Alert).filter_by(kind="digest").all()
+    assert all(a.sent_at is not None for a in sent)
+    assert len({a.postmark_message_id for a in sent}) == 1  # same message, one send
+
+
+@patch("app.jobs.poll_customers.WELCOME_DIGEST_APPROVED_ON", None)
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_backfill_skips_digest_cleanly_when_digest_gate_closed(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    _seed_place(db_session)
+    customer = _seed_customer(db_session)
+    _seed_review(db_session, review_id="d1")
+    _seed_alert(
+        db_session, customer_id=customer.customer_id, review_id="d1", kind="digest", sent_at=None
+    )
+    _no_new_reviews(mock_outscraper_cls)
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 0
+    _mock_send_email.assert_not_called()
+
+
+@patch("app.jobs.poll_customers.ClaudeClient")
+@patch("app.jobs.poll_customers.OutscraperClient")
+def test_digest_backfill_does_not_consume_the_alert_daily_cap(
+    mock_outscraper_cls: MagicMock, mock_claude_cls: MagicMock, _mock_send_email, db_session
+) -> None:
+    """Design decision, disclosed in _sweep_unsent_alerts' own docstring: retrying a customer's
+    stuck day-one digest (however many drafts it bundles) must not eat into the SAME daily cap
+    that protects against an ongoing-alert flood — exactly the boundary ticket 5.1's original
+    digest send already sat on the far side of. Proven here by bundling 5 stuck digest drafts
+    (half the daily cap, if it were charged) and then showing a genuinely new review for the same
+    customer still gets alerted in the same run."""
+    _seed_place(db_session)
+    customer = _seed_customer(db_session)
+    for i in range(5):
+        review_id = f"d{i}"
+        _seed_review(db_session, review_id=review_id)
+        _seed_alert(
+            db_session, customer_id=customer.customer_id, review_id=review_id, kind="digest"
+        )
+    mock_outscraper_cls.return_value.fetch_reviews.return_value = [
+        {
+            "place_id": "p1",
+            "reviews_data": [
+                {
+                    "review_id": "new-review",
+                    "review_rating": 5,
+                    "review_text": "Świetnie!",
+                    "author_title": "Jan",
+                    "review_timestamp": int(WITHIN_WINDOW.timestamp()),
+                }
+            ],
+        }
+    ]
+    mock_claude_cls.return_value.generate_customer_response.return_value = _generated("Dzięki!")
+
+    result = run_poll_customers(db_session, now=WITHIN_WINDOW)
+
+    assert result["backfilled"] == 5
+    assert result["new_alerts"] == 1
+    assert result["daily_cap_skipped_customers"] == 0

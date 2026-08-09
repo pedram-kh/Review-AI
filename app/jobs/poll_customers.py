@@ -42,6 +42,17 @@ appropriate as a circuit breaker against a runaway bug at today's customer count
 graceful degradation strategy for a genuinely large customer base. Revisiting the cap (e.g.
 prioritizing/rotating customers instead of an all-or-nothing abort) is future scope, not ticket
 5.2's.
+
+Ticket 5.7 (2026-08-09, Stakeholder finding): a customer who connects — or whose 2h alert fires —
+while 5.4's send gates are closed gets a real draft with no email, permanently, because both the
+day-one job and this module's Phase 3 only ever attempt a send once, at creation time, and every
+idempotency check in this codebase is keyed on "does an alerts row already exist for this
+review", not "was it ever actually delivered". `run_poll_customers()` now sweeps `sent_at IS NULL`
+rows FIRST, before touching Outscraper/Claude for new reviews, so a run that fixes a gate or a
+transient Postmark outage also fixes its own backlog on the very next tick — no separate ops
+script, no one-off manual send. Placed before the records-total cap check (not after) because the
+sweep spends nothing at Outscraper/Claude — it only ever re-sends a draft that already exists —
+so it must never be blocked by a cap that exists to protect spend it doesn't cause.
 """
 
 import argparse
@@ -63,7 +74,13 @@ from app.services.claude_client import ClaudeClient
 from app.services.cost_guard import CostCapExceeded
 from app.services.outscraper_client import OutscraperClient
 from app.services.postmark_client import send_email
-from app.templates import ALERT_EMAIL_APPROVED_ON, render_alert_email
+from app.templates import (
+    ALERT_EMAIL_APPROVED_ON,
+    WELCOME_DIGEST_APPROVED_ON,
+    DigestDraftItem,
+    render_alert_email,
+    render_welcome_digest,
+)
 
 WARSAW_TZ = ZoneInfo("Europe/Warsaw")
 
@@ -81,6 +98,12 @@ MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY = 10
 
 ELIGIBLE_STATUSES = ("trialing", "active")
 ALERT_KIND = "alert"
+DIGEST_KIND = "digest"
+
+# Ticket 5.7: how far back the sweep looks for a never-delivered alert/digest. 7 days, not
+# unbounded — a review that's still undelivered after a week is a standing send-pipeline problem
+# worth a human looking at, not something to keep silently retrying forever alongside new spend.
+SWEEP_LOOKBACK_DAYS = 7
 
 # Ticket 5.2 async-202 follow-up (2026-08-08): guards run_poll_customers_locked() below, the one
 # entry point that can now overlap with itself — see that function's docstring.
@@ -134,10 +157,198 @@ def _empty_result() -> dict:
         "reviews_fetched": 0,
         "new_alerts": 0,
         "emails_sent": 0,
+        "backfilled": 0,
         "daily_cap_skipped_customers": 0,
         "aborted": False,
         "abort_reason": None,
     }
+
+
+def _get_or_init_daily_count(
+    session: Session,
+    alerts_today_count: dict[int, int],
+    customer_id: int,
+    day_start: datetime,
+    day_end: datetime,
+) -> int:
+    """Shared by the ticket 5.7 sweep and Phase 3 below so both draw from, and add to, the SAME
+    running total — a customer's daily cap must not reset between "retrying old mail" and
+    "alerting new reviews" just because they're two different code paths in one run."""
+    if customer_id not in alerts_today_count:
+        alerts_today_count[customer_id] = _count_alerts_today_for_customer(
+            session, customer_id, day_start, day_end
+        )
+    return alerts_today_count[customer_id]
+
+
+def _select_unsent_alerts(
+    session: Session, customer_ids: list[int], now: datetime
+) -> list[Alert]:
+    if not customer_ids:
+        return []
+    cutoff = now - timedelta(days=SWEEP_LOOKBACK_DAYS)
+    stmt = (
+        select(Alert)
+        .where(
+            Alert.customer_id.in_(customer_ids),
+            Alert.sent_at.is_(None),
+            Alert.created_at >= cutoff,
+        )
+        .order_by(Alert.customer_id, Alert.created_at)
+    )
+    return list(session.execute(stmt).scalars().all())
+
+
+def _sweep_unsent_alerts(
+    session: Session,
+    customers: list[Customer],
+    now: datetime,
+    alerts_today_count: dict[int, int],
+    skipped_customers_for_daily_cap: set[int],
+    day_start: datetime,
+    day_end: datetime,
+    on_progress,
+) -> int:
+    """Ticket 5.7. Retries every `alerts` row with `sent_at IS NULL` (never delivered — either
+    the send gate was closed, or a real Postmark failure) for the given (already-eligible)
+    customers, newest-cause-first isn't the point here so oldest-first (`created_at` ascending) is
+    used instead, matching "first in, first delivered". Spends nothing at Outscraper/Claude —
+    every row already has its `response_text` — so it is not subject to the records/Claude-call
+    caps, only to the same per-customer daily ALERT-email cap and the same template gates as a
+    brand-new send would be.
+
+    `kind='alert'` rows are retried one email each (matches how they were originally going to be
+    sent). `kind='digest'` rows are grouped per customer and retried as ONE email covering all of
+    that customer's still-unsent drafts — this is exactly the shape of the day-one job's own
+    original send, not a new batching decision. Digest retries deliberately do NOT consume the
+    per-review daily ALERT cap: that cap exists to stop an ongoing flood of new-review alerts, a
+    concern the day-one digest was never subject to in ticket 5.1 either (a customer's one-time
+    welcome digest can legitimately contain up to 10 drafts in a single email without ever having
+    tripped this cap). Locked in by
+    test_test_poll_customers.py::test_digest_backfill_does_not_consume_the_alert_daily_cap.
+    """
+    customer_by_id = {c.customer_id: c for c in customers}
+    unsent = _select_unsent_alerts(session, list(customer_by_id), now)
+    if not unsent:
+        return 0
+
+    backfilled = 0
+    alert_rows = [a for a in unsent if a.kind == ALERT_KIND]
+    digest_rows = [a for a in unsent if a.kind == DIGEST_KIND]
+
+    # --- retry kind='alert' rows, one email each, oldest first -----------------------------
+    for alert in alert_rows:
+        customer = customer_by_id[alert.customer_id]
+        count = _get_or_init_daily_count(
+            session, alerts_today_count, customer.customer_id, day_start, day_end
+        )
+        if count >= MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY:
+            skipped_customers_for_daily_cap.add(customer.customer_id)
+            on_progress(
+                f"Backfill: customer {customer.customer_id}'s daily alert cap "
+                f"({MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY}/day) reached — alert {alert.review_id} "
+                "stays unsent, retried next run."
+            )
+            continue
+        if ALERT_EMAIL_APPROVED_ON is None:
+            on_progress(
+                f"Backfill: ALERT_EMAIL_APPROVED_ON unset — alert {alert.review_id} stays unsent."
+            )
+            continue
+
+        review = session.get(Review, alert.review_id)
+        place = session.get(Place, customer.place_id) if customer.place_id else None
+        if review is None or place is None:
+            on_progress(f"Backfill: alert {alert.review_id} missing review/place — skipping.")
+            continue
+
+        keyword = detect_health_keyword(review.text or "")
+        subject, text_body, html_body = render_alert_email(
+            place_name=place.name,
+            rating=review.rating,
+            review_text=review.text or "",
+            response_text=alert.response_text,
+            is_urgent=alert.is_urgent,
+            health_flagged=keyword is not None,
+        )
+        message_id = send_email(
+            customer.notification_email or customer.email, subject, text_body, html_body
+        )
+        if not message_id:
+            on_progress(f"Backfill: alert {alert.review_id} — send failed again, stays unsent.")
+            continue
+
+        stamped = session.execute(
+            update(Alert)
+            .where(Alert.alert_id == alert.alert_id, Alert.sent_at.is_(None))
+            .values(sent_at=now, postmark_message_id=message_id)
+        )
+        session.commit()
+        if stamped.rowcount:
+            backfilled += 1
+            alerts_today_count[customer.customer_id] = count + 1
+            on_progress(f"Backfill: alert {alert.review_id} — delivered.")
+
+    # --- retry kind='digest' rows, grouped into one email per customer ---------------------
+    digest_customer_ids = sorted({a.customer_id for a in digest_rows})
+    for customer_id in digest_customer_ids:
+        customer = customer_by_id[customer_id]
+        rows = [a for a in digest_rows if a.customer_id == customer_id]
+        if WELCOME_DIGEST_APPROVED_ON is None:
+            on_progress(
+                f"Backfill: WELCOME_DIGEST_APPROVED_ON unset — customer {customer_id}'s "
+                f"{len(rows)} stuck digest draft(s) stay unsent."
+            )
+            continue
+
+        place = session.get(Place, customer.place_id) if customer.place_id else None
+        items: list[DigestDraftItem] = []
+        review_ids: list[str] = []
+        for row in rows:
+            review = session.get(Review, row.review_id)
+            if review is None:
+                continue
+            items.append(
+                DigestDraftItem(
+                    place_name=place.name if place else None,
+                    rating=review.rating,
+                    review_text=review.text or "",
+                    response_text=row.response_text,
+                    is_urgent=row.is_urgent,
+                )
+            )
+            review_ids.append(row.review_id)
+        if not items:
+            on_progress(f"Backfill: customer {customer_id} digest rows missing reviews — skipping.")
+            continue
+
+        subject, text_body, html_body = render_welcome_digest(items)
+        message_id = send_email(
+            customer.notification_email or customer.email, subject, text_body, html_body
+        )
+        if not message_id:
+            on_progress(
+                f"Backfill: customer {customer_id}'s digest send failed again, stays unsent."
+            )
+            continue
+
+        stamped = session.execute(
+            update(Alert)
+            .where(
+                Alert.customer_id == customer_id,
+                Alert.review_id.in_(review_ids),
+                Alert.sent_at.is_(None),
+            )
+            .values(sent_at=now, postmark_message_id=message_id)
+        )
+        session.commit()
+        backfilled += stamped.rowcount
+        on_progress(
+            f"Backfill: customer {customer_id} — delivered {stamped.rowcount} stuck digest "
+            "draft(s) in one email."
+        )
+
+    return backfilled
 
 
 def run_poll_customers(
@@ -162,6 +373,30 @@ def run_poll_customers(
     if not customers:
         on_progress("No trialing/active customers with a connected place — nothing to do.")
         return result
+
+    day_start, day_end = _warsaw_day_bounds_utc(now)
+    alerts_today_count: dict[int, int] = {}
+    skipped_customers_for_daily_cap: set[int] = set()
+
+    # Ticket 5.7: sweep never-delivered mail FIRST, before spending anything on new reviews —
+    # see this module's docstring and _sweep_unsent_alerts' own docstring for why it isn't
+    # subject to the records/Claude-call caps below.
+    result["backfilled"] = _sweep_unsent_alerts(
+        session,
+        customers,
+        now,
+        alerts_today_count,
+        skipped_customers_for_daily_cap,
+        day_start,
+        day_end,
+        on_progress,
+    )
+    if result["backfilled"]:
+        on_progress(f"Backfill sweep: {result['backfilled']} previously-stuck email(s) delivered.")
+    # Set now, not only at the very end: several `return result` points below (records-cap abort,
+    # "no new reviews") happen before Phase 3 ever runs, and a customer the sweep itself skipped
+    # for being at-cap must not be reported as 0 skipped just because the run stopped early.
+    result["daily_cap_skipped_customers"] = len(skipped_customers_for_daily_cap)
 
     # LOGIC.md §8a: "<=500 records total ... abort over cap." Worst-case pre-flight estimate,
     # checked before any Outscraper call — same all-or-nothing contract as
@@ -268,18 +503,15 @@ def run_poll_customers(
         return result
 
     # --- Phase 3: generate + record + email, honoring the per-customer daily cap -----------
+    # alerts_today_count / skipped_customers_for_daily_cap are the SAME dict/set the ticket 5.7
+    # sweep above already used — a customer whose backlog just consumed 3 of today's 10 slots
+    # must only have 7 left for genuinely new reviews, not a fresh 10.
     client = ClaudeClient()
-    day_start, day_end = _warsaw_day_bounds_utc(now)
-    alerts_today_count: dict[int, int] = {}
-    skipped_customers_for_daily_cap: set[int] = set()
 
     for customer, place, review in pending:
-        if customer.customer_id not in alerts_today_count:
-            alerts_today_count[customer.customer_id] = _count_alerts_today_for_customer(
-                session, customer.customer_id, day_start, day_end
-            )
-
-        if alerts_today_count[customer.customer_id] >= MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY:
+        if _get_or_init_daily_count(
+            session, alerts_today_count, customer.customer_id, day_start, day_end
+        ) >= MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY:
             if customer.customer_id not in skipped_customers_for_daily_cap:
                 skipped_customers_for_daily_cap.add(customer.customer_id)
                 on_progress(

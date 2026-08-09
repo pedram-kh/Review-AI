@@ -99,6 +99,20 @@ Leads/Replies. Read-only. Tests: auth 401, joins with/without connected place, e
 Live-verify against the real STAKEHOLDER-TEST customer. Update row 5.6 in PROGRESS.md.
 ```
 
+## Ticket 5.7 — Alert retry/backfill sweep (pulled from 4am finding by Stakeholder, 2026-08-09)
+
+**Done when:** every poll run FIRST sweeps unsent alerts before processing new reviews: select alerts with `email_sent=false` (or NULL postmark_message_id), created ≤7 days ago, respecting the ≤10/day per-customer cap and template gates; retry the send; log per-alert outcome + a `backfilled: N` counter in the run summary. Day-one digests get the same treatment (a customer whose digest failed receives it on the next cycle, marked "Twoje odpowiedzi są gotowe" — no "sorry for delay" copy needed). Idempotent: a successfully retried alert never sends twice (postmark_message_id stamped atomically). Tests: failed-send row gets retried next run; sent row never retried; 7-day cutoff; cap respected mid-sweep; gate-closed skips cleanly and retries when gate opens. Live proof: the 20 currently-stuck day-one drafts flow out via the sweep itself (this REPLACES the one-off manual send — the fix delivering the stuck mail IS its live verification).
+
+**Cursor prompt:**
+```
+Ticket 5.7 per SPRINT_05.md spec. Note the design change from the earlier E-answer: do NOT
+manually one-off the 2 stuck digests — build the sweep and let its first production run deliver
+them, which is the live verification. Order inside run_poll_customers(): sweep first, then new
+reviews, both under the same run-lock and caps. Add backfilled counter to the run summary log.
+Update row 5.7 in PROGRESS.md. Deploy; report the next scheduled tick's summary showing the
+stuck alerts flowing out.
+```
+
 ---
 
 ## Sprint 5 PROGRESS.md rows (Cursor: append when opening)

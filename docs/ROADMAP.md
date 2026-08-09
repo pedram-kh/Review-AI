@@ -48,10 +48,10 @@ pointed at paying customers' profiles.
 |---|---|---|---|---|
 | 0 | 2–3 days | Foundations | Script writes a fake lead into production DB | ✅ Closed |
 | 1 | 1 week | Data pipeline | One command fills DB with 100+ real qualified leads from target city | ✅ Closed (213 leads) |
-| 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | 🟡 2.4/2.5 ⏸ external-gated |
+| 2 | 1 week | AI generation + enrichment | Every lead has a send-worthy PL response + ≥1 contact channel | ✅ Closed (86 queued/sendable) |
 | 3 | 1 week | Internal dashboard + outreach starts | First 10–20 sends via dashboard; reply tracking live | 🔵 ACTIVE (parallel) |
 | 4 | 1 week | Product foundation: landing + auth + Stripe(test) + hardening-ready | Landing→magic link→/app→test checkout→trialing; CUTOVER.md rehearsed | 🔵 ACTIVE (parallel) |
-| 5 | 1 week | Value delivery (launch) | Connected test restaurant → day-one digest + 2h-cycle alert email with paste-ready response | 🔵 ACTIVE |
+| 5 | 1 week | Value delivery (launch) | Connected test restaurant → day-one digest + 2h-cycle alert email with paste-ready response | ✅ Closed |
 | 6 | 1 week | Video + polish + iterate | Onboarding video live; first trial-user fixes shipped | ⚪ Planned |
 
 ## 4. Decision gates ⚠️

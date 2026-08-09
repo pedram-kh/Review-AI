@@ -41,10 +41,11 @@ def test_template_matches_sprint_02_doc() -> None:
     assert OUTREACH_TEMPLATE_V1 == _sprint_doc_template()
 
 
-def test_template_is_not_marked_approved_until_the_stakeholder_signs_off() -> None:
-    # Guards against the approval date being filled in casually: flipping it is a
-    # deliberate act that should come with a PROGRESS.md entry.
-    assert TEMPLATE_APPROVED_ON is None
+def test_template_is_approved() -> None:
+    # Stakeholder + PM approved via the plan-B joint internal review, 2026-08-09 (docs/PROGRESS.md
+    # ticket 2.4, docs/ROADMAP.md decisions log) — same "flipping this is a deliberate, dated act"
+    # contract as ALERT_EMAIL_APPROVED_ON/WELCOME_DIGEST_APPROVED_ON, now on the approved side.
+    assert TEMPLATE_APPROVED_ON == "2026-08-09"
 
 
 def test_render_fills_every_placeholder() -> None:

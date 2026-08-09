@@ -4,9 +4,11 @@ OUTREACH_TEMPLATE_V1 MUST match the "Outreach template v1" block in docs/sprints
 change only together, same rule as the generation prompt; tests/test_templates.py asserts the
 two texts are identical.
 
-STAKEHOLDER APPROVAL IS PENDING. Per SPRINT_02.md ticket 2.4 the Stakeholder must approve this
-copy before any lead is queued with it, so TEMPLATE_APPROVED_ON is None and
-app/jobs/assemble_outreach.py refuses to write messages until a date is filled in here.
+APPROVED (Stakeholder + PM, 2026-08-09) — plan-B joint internal review of all 40 v1.2 responses
+(39 SEND / 1 EDIT / 0 BAD; #26 Thai Me Up regenerated under v1.2.1 for rule-5 admission language)
+plus the template copy itself. Logged honestly as NOT native-verified (no PL-native reviewer read
+before this batch went out) — see docs/ROADMAP.md's decisions log, 2026-08-09 row.
+app/jobs/assemble_outreach.py now queues for real.
 """
 
 import html as html_lib
@@ -16,7 +18,7 @@ from app.config import settings
 
 # Set to the approval date (YYYY-MM-DD) once the Stakeholder signs off in PROGRESS.md.
 # While this is None, assemble_outreach runs in preview mode only.
-TEMPLATE_APPROVED_ON: str | None = None
+TEMPLATE_APPROVED_ON: str | None = "2026-08-09"
 
 OUTREACH_TEMPLATE_V1 = """Temat: Odpowiedź na negatywną recenzję {name} — gotowa do użycia
 

@@ -38,6 +38,7 @@ def test_pick_channel_follows_logic_priority(fb_url, email, expected) -> None:
     assert pick_channel(fb_url, email) == expected
 
 
+@patch("app.jobs.assemble_outreach.TEMPLATE_APPROVED_ON", None)
 @patch("app.jobs.assemble_outreach.count_health_flagged", return_value=3)
 @patch("app.jobs.assemble_outreach.select_candidates")
 @patch("app.jobs.assemble_outreach.SessionLocal")

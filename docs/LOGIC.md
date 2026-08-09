@@ -124,6 +124,19 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
   outreach template, and alert emails must all match the real cycle.
 - **Day-one value:** on connect, generate drafts for the customer's existing recent reviews and
   send a welcome digest immediately.
+  - **Connect is asynchronous (ticket 6.1, 2026-08-09).** `POST /api/customer/connect-place` commits
+    the connection and answers **202** at once; the day-one job then runs behind it. The customer is
+    connected the moment they click, but their drafts arrive up to a minute later, and the panel
+    says so explicitly instead of implying both happened together. Forced by measurement, not
+    preference: day-one takes ~58s for a new restaurant (Outscraper + up to ten sequential Claude
+    calls + the digest), while the Netlify function fronting the endpoint is capped at 10s (26s
+    maximum) — the old synchronous version returned an HTML gateway error to a customer whose
+    connect had actually succeeded. Same reasoning, and the same fix, as the poller's 202 above.
+  - Run state (`running` / `done` / `failed` / `stale`) is persisted per customer and read back via
+    `GET /api/customer/state`; a run that never records a finish (an App Runner restart mid-run)
+    reads as `stale` after 10 minutes so nothing waits on it forever. One customer's day-one may
+    never run twice concurrently — the per-customer run-lock protects against paying Claude twice
+    for the same review — but two different customers connecting at once must both proceed.
 - **Caps:** per poll-run: ≤10 review records/customer, ≤500 records total, ≤100 Claude calls;
   abort over cap. Per-customer alert emails: ≤10/day (anti-runaway).
 - **Health-flag rule carries over:** flagged drafts marked "sprawdź przed publikacją" in the
@@ -141,6 +154,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-09 | §8a day-one bullet: connect is asynchronous (202 + background job + persisted run state + per-customer run-lock) — forced by a live gateway-timeout failure on a 58s synchronous connect, ticket 6.1 | Stakeholder (pending PM review) |
 | 2026-08-08 | §8a polling bullet: infra note added — classic EventBridge Rule + UTC cron (Scheduler can't target API destinations), code-enforced Warsaw window covers DST edge ticks — accepted | Stakeholder + PM |
 | 2026-08-07 | §8a added (Sprint 5 planning): customer polling 2h/08–23, all-reviews drafts with urgency flags + positive variant, 2-godziny promise wording fix, day-one digest, per-run caps | Stakeholder + PM |
 | 2026-08-06 | §7b: Anna confirmed as pen name (alias of Stakeholder inbox) — option C chosen with risk accepted; PM's disclosure obligation discharged | Stakeholder |

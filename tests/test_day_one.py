@@ -17,12 +17,19 @@ real local .env POSTMARK_TOKEN, which Postmark correctly rejected (422) since th
 isn't a real send-able payload. Real bug in test isolation, not in the gate flip — fixed same day.
 """
 
+import threading
+import time
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.jobs.day_one import run_day_one_for_customer
+from app.jobs.day_one import (
+    _empty_result,
+    run_day_one_for_customer,
+    run_day_one_for_customer_locked,
+)
 from app.models import Alert, Customer, Place, Review
 from app.services.claude_client import GeneratedResponse
 from app.services.claude_guard import ClaudeCallCapExceeded
@@ -351,3 +358,140 @@ def test_is_urgent_false_for_ratings_above_three(rating, db_session) -> None:
         run_day_one_for_customer(db_session, customer)
 
     assert db_session.query(Alert).filter_by(review_id="r1").one().is_urgent is False
+
+
+# --- run_day_one_for_customer_locked (ticket 6.1) ------------------------------------------------
+# The background-task entry point behind POST /api/customer/connect-place's 202. Its job is the
+# bookkeeping the old synchronous design didn't need: open its own session, record the run's state
+# on the customers row (migration 009) for the panel to read back, and never let the same
+# customer's day-one run twice at once.
+
+
+@contextmanager
+def _yielding(session):
+    """Stands in for SessionLocal() so the locked runner uses the test's own in-memory session.
+    Deliberately does NOT close it on exit — `with SessionLocal() as s` would otherwise close the
+    session the test still needs to assert against."""
+    yield session
+
+
+def test_locked_run_records_start_finish_and_result(db_session) -> None:
+    _seed_place(db_session, fresh=True)
+    _seed_review(db_session, review_id="r1", rating=5, days_old=1)
+    customer = _seed_customer(db_session)
+
+    with (
+        patch("app.jobs.day_one.SessionLocal", side_effect=lambda: _yielding(db_session)),
+        patch("app.jobs.day_one.ClaudeClient") as mock_claude_cls,
+    ):
+        mock_claude_cls.return_value.generate_customer_response.return_value = _generated("Dzięki!")
+        result = run_day_one_for_customer_locked(customer.customer_id)
+
+    assert result["drafts_generated"] == 1
+    assert result["error"] is None
+
+    db_session.refresh(customer)
+    assert customer.day_one_started_at is not None
+    assert customer.day_one_finished_at is not None
+    # The persisted copy is what GET /api/customer/state renders from, so it must match the return
+    # value rather than being a separately-assembled summary that could drift from it.
+    assert customer.day_one_result["drafts_generated"] == 1
+    assert customer.day_one_result["error"] is None
+
+
+def test_locked_run_records_a_failure_instead_of_raising(db_session) -> None:
+    """A raise here would escape into the background-task runner, where it reaches the logs and
+    nothing else — leaving day_one_finished_at NULL forever and the panel polling `running` until
+    the staleness window expires. The failure has to land on the row instead."""
+    _seed_place(db_session, fresh=True)
+    _seed_review(db_session, review_id="r1", rating=2, days_old=1)
+    customer = _seed_customer(db_session)
+
+    with (
+        patch("app.jobs.day_one.SessionLocal", side_effect=lambda: _yielding(db_session)),
+        patch(
+            "app.jobs.day_one.run_day_one_for_customer",
+            side_effect=RuntimeError("Claude is down"),
+        ),
+    ):
+        result = run_day_one_for_customer_locked(customer.customer_id)
+
+    assert result["error"] == "RuntimeError: Claude is down"
+    assert result["drafts_generated"] == 0
+
+    db_session.refresh(customer)
+    assert customer.day_one_finished_at is not None
+    assert customer.day_one_result["error"] == "RuntimeError: Claude is down"
+
+
+# The two lock tests below deliberately use a MagicMock session rather than the shared in-memory
+# one every other test in this file uses. A SQLAlchemy Session is not thread-safe, and these tests
+# have to run two real threads to create the overlap they exist to check — pointing both at the one
+# db_session raises IllegalStateChangeError from two concurrent commits, which is a fact about
+# sqlite/Session threading rather than anything about the lock. Mocking the session keeps each test
+# scoped to the single question it asks: did the underlying job body run once, or twice?
+
+
+def test_locked_run_is_a_noop_for_a_customer_already_running() -> None:
+    """Two genuinely concurrent runs for the SAME customer (reachable now that connect-place
+    returns before the work finishes — a double-tapped "Połącz", or a retry) must collapse to one.
+    Idempotency-by-alerts alone cannot do this: both runs would pass the "not yet alerted" pre-check
+    before either commits, both would pay Claude, and ON CONFLICT DO NOTHING would then discard one
+    row but not the money already spent producing it."""
+    call_count = 0
+    count_lock = threading.Lock()
+    results: list[dict] = []
+
+    def _slow_run(session, customer, on_progress=lambda msg: None):
+        nonlocal call_count
+        with count_lock:
+            call_count += 1
+        time.sleep(0.3)
+        return {**_empty_result(7), "drafts_generated": 1}
+
+    def _fire():
+        results.append(run_day_one_for_customer_locked(7))
+
+    with (
+        patch("app.jobs.day_one.SessionLocal", side_effect=lambda: _yielding(MagicMock())),
+        patch("app.jobs.day_one.run_day_one_for_customer", side_effect=_slow_run),
+    ):
+        t1 = threading.Thread(target=_fire)
+        t2 = threading.Thread(target=_fire)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+    assert call_count == 1
+    assert sorted(r["error"] or "" for r in results) == ["", "already_running"]
+
+
+def test_locked_run_lets_two_different_customers_proceed_concurrently() -> None:
+    """The lock is per customer, not global like poll_customers.py's. Two people connecting in the
+    same minute are unrelated units of work — a global lock would silently drop the second one's
+    welcome digest, which is the entire product promise on day one."""
+    started = 0
+    start_lock = threading.Lock()
+
+    def _slow_run(session, customer, on_progress=lambda msg: None):
+        nonlocal started
+        with start_lock:
+            started += 1
+        time.sleep(0.3)
+        return _empty_result(0)
+
+    with (
+        patch("app.jobs.day_one.SessionLocal", side_effect=lambda: _yielding(MagicMock())),
+        patch("app.jobs.day_one.run_day_one_for_customer", side_effect=_slow_run),
+    ):
+        threads = [
+            threading.Thread(target=run_day_one_for_customer_locked, args=(cid,))
+            for cid in (11, 12)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    assert started == 2

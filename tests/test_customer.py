@@ -1,17 +1,25 @@
 """Tests for the customer connect-flow endpoints (SPRINT_05.md ticket 5.1).
 
 The day-one job itself is unit-tested in tests/test_day_one.py; here it's mocked out (patched at
-app.routers.customer.run_day_one_for_customer) so these tests stay focused on the endpoints'
+app.routers.customer.run_day_one_for_customer_locked) so these tests stay focused on the endpoints'
 own contract: auth, place_id/maps_url resolution, the "already connected" refusal, and the
 upsert-merge behavior for the shared `places` table.
+
+Ticket 6.1 note on what these tests can and cannot see: connect-place now returns 202 and hands
+day-one to a background task, so in production the response lands before the job has necessarily
+even started. Only the TestClient's synchronous background-task execution makes the mocked job's
+call observable inside a request assertion at all — same caveat as
+tests/test_jobs_router.py::test_correct_key_returns_202_immediately_with_a_run_id.
 """
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import create_session_token
+from app.jobs.day_one import STALE_RUN_AFTER
 from app.main import app
 from app.models import Alert, Customer, Place, Review
 from app.services.cost_guard import CostCapExceeded
@@ -42,7 +50,11 @@ def _seed_customer(db_session, *, email: str, place_id: str | None = None) -> Cu
     return customer
 
 
+# Mirrors app/jobs/day_one.py's _empty_result shape, which is what the real locked runner both
+# returns and persists to customers.day_one_result.
 _DEFAULT_DAY_ONE_RESULT = {
+    "customer_id": 1,
+    "place_id": None,
     "fetched_from_api": False,
     "reviews_considered": 0,
     "reviews_qualifying": 0,
@@ -50,6 +62,8 @@ _DEFAULT_DAY_ONE_RESULT = {
     "digest_sent": False,
     "capped": False,
     "cap_error": None,
+    "postmark_message_id": None,
+    "error": None,
 }
 
 
@@ -357,14 +371,18 @@ def test_preview_maps_url_does_not_connect_anything(
 # --- POST /api/customer/connect-place ------------------------------------------------------------
 
 
-@patch("app.routers.customer.run_day_one_for_customer", return_value=_DEFAULT_DAY_ONE_RESULT)
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 def test_connect_place_requires_auth(mock_day_one: MagicMock, db_session, auth_settings) -> None:
     response = client.post("/api/customer/connect-place", json={"place_id": "p1"})
     assert response.status_code == 401
     mock_day_one.assert_not_called()
 
 
-@patch("app.routers.customer.run_day_one_for_customer", return_value=_DEFAULT_DAY_ONE_RESULT)
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 def test_connect_place_refuses_when_already_connected(
     mock_day_one: MagicMock, db_session, auth_settings
 ) -> None:
@@ -392,7 +410,9 @@ def test_connect_place_requires_place_id_or_maps_url(db_session, auth_settings) 
     assert response.status_code == 422
 
 
-@patch("app.routers.customer.run_day_one_for_customer", return_value=_DEFAULT_DAY_ONE_RESULT)
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 def test_connect_place_by_place_id_creates_new_place_and_sets_customer(
     mock_day_one: MagicMock, db_session, auth_settings
 ) -> None:
@@ -404,10 +424,14 @@ def test_connect_place_by_place_id_creates_new_place_and_sets_customer(
         headers=_session_header(customer.customer_id, customer.email),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     body = response.json()
     assert body["place_id"] == "brand-new-place"
     assert body["name"] == "Nowa Restauracja"
+    assert body["day_one_started"] is True
+    # Ticket 6.1: the summary must NOT be in this response any more — that's the whole point of the
+    # 202. A frontend still reading `day_one` here would silently render undefined counts.
+    assert "day_one" not in body
 
     db_session.refresh(customer)
     assert customer.place_id == "brand-new-place"
@@ -415,10 +439,44 @@ def test_connect_place_by_place_id_creates_new_place_and_sets_customer(
 
     place = db_session.get(Place, "brand-new-place")
     assert place.name == "Nowa Restauracja"
+    # Called with the customer_id, not a Customer/session — the background task opens its own.
+    mock_day_one.assert_called_once()
+    assert mock_day_one.call_args.args == (customer.customer_id,)
+
+
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_connect_place_marks_day_one_started_before_returning(
+    mock_day_one: MagicMock, db_session, auth_settings
+) -> None:
+    """The request itself stamps day_one_started_at, so the panel's very first GET /state after the
+    202 reports `running` rather than `not_started` — the latter is what the frontend uses to mean
+    "no run was ever scheduled", and must not be reachable for a connect that did schedule one."""
+    customer = _seed_customer(db_session, email="stamped@example.com")
+
+    def _assert_stamped_when_called(customer_id: int, on_progress=None) -> dict:
+        # Runs as the background task, i.e. strictly after the response was built.
+        db_session.refresh(customer)
+        assert customer.day_one_started_at is not None
+        assert customer.day_one_finished_at is None
+        return _DEFAULT_DAY_ONE_RESULT
+
+    mock_day_one.side_effect = _assert_stamped_when_called
+
+    response = client.post(
+        "/api/customer/connect-place",
+        json={"place_id": "stamped-place"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 202
     mock_day_one.assert_called_once()
 
 
-@patch("app.routers.customer.run_day_one_for_customer", return_value=_DEFAULT_DAY_ONE_RESULT)
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 def test_connect_place_never_overwrites_existing_place_metadata(
     mock_day_one: MagicMock, db_session, auth_settings
 ) -> None:
@@ -434,13 +492,15 @@ def test_connect_place_never_overwrites_existing_place_metadata(
         headers=_session_header(customer.customer_id, customer.email),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     place = db_session.get(Place, "swept-place")
     assert place.name == "Prawdziwa Nazwa"
     assert place.address == "Prawdziwy Adres"
 
 
-@patch("app.routers.customer.run_day_one_for_customer", return_value=_DEFAULT_DAY_ONE_RESULT)
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 @patch("app.routers.customer.parse_maps_url")
 def test_connect_place_by_maps_url_resolves_place_id(
     mock_parse: MagicMock, mock_day_one: MagicMock, db_session, auth_settings
@@ -454,13 +514,15 @@ def test_connect_place_by_maps_url_resolves_place_id(
         headers=_session_header(customer.customer_id, customer.email),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert response.json()["place_id"] == "resolved-id"
     db_session.refresh(customer)
     assert customer.place_id == "resolved-id"
 
 
-@patch("app.routers.customer.run_day_one_for_customer", return_value=_DEFAULT_DAY_ONE_RESULT)
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 @patch("app.routers.customer.parse_maps_url")
 def test_connect_place_by_maps_url_asks_for_search_on_failure(
     mock_parse: MagicMock, mock_day_one: MagicMock, db_session, auth_settings
@@ -483,12 +545,17 @@ def test_connect_place_by_maps_url_asks_for_search_on_failure(
     assert customer.place_id is None
 
 
-@patch("app.routers.customer.run_day_one_for_customer", side_effect=RuntimeError("Claude is down"))
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked",
+    return_value={**_DEFAULT_DAY_ONE_RESULT, "error": "RuntimeError: Claude is down"},
+)
 def test_connect_succeeds_even_if_day_one_job_fails(
     mock_day_one: MagicMock, db_session, auth_settings
 ) -> None:
     # The restaurant IS connected at this point — a downstream digest hiccup must not undo it
-    # (same "don't let a send failure break the primary action" posture as request-link).
+    # (same "don't let a send failure break the primary action" posture as request-link). Ticket 6.1
+    # makes this structural rather than a matter of exception handling: the connect is committed and
+    # the 202 built before day-one is handed off at all, so a failing day-one cannot reach it.
     customer = _seed_customer(db_session, email="connect5@example.com")
 
     response = client.post(
@@ -497,7 +564,86 @@ def test_connect_succeeds_even_if_day_one_job_fails(
         headers=_session_header(customer.customer_id, customer.email),
     )
 
-    assert response.status_code == 200
-    assert response.json()["day_one"]["drafts_generated"] == 0
+    assert response.status_code == 202
+    assert response.json()["day_one_started"] is True
     db_session.refresh(customer)
     assert customer.place_id == "p-resilient"
+
+
+# --- GET /api/customer/state — day-one run state (ticket 6.1) ------------------------------------
+
+
+def _state_day_one(customer: Customer) -> dict:
+    response = client.get(
+        "/api/customer/state", headers=_session_header(customer.customer_id, customer.email)
+    )
+    assert response.status_code == 200
+    return response.json()["day_one"]
+
+
+def test_state_reports_not_started_before_any_connect(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="never-ran@example.com")
+    day_one = _state_day_one(customer)
+    assert day_one["status"] == "not_started"
+    assert day_one["summary"] is None
+
+
+def test_state_reports_running_while_the_job_is_in_flight(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="in-flight@example.com", place_id="p-running")
+    customer.day_one_started_at = datetime.now(UTC)
+    db_session.commit()
+
+    day_one = _state_day_one(customer)
+    assert day_one["status"] == "running"
+    # No partial summary mid-run: zeros here would render in the panel as "0 drafts ready", which
+    # is a claim about a finished run, not an unfinished one.
+    assert day_one["summary"] is None
+
+
+def test_state_reports_done_with_the_persisted_summary(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="finished@example.com", place_id="p-done")
+    customer.day_one_started_at = datetime.now(UTC) - timedelta(seconds=58)
+    customer.day_one_finished_at = datetime.now(UTC)
+    customer.day_one_result = {
+        **_DEFAULT_DAY_ONE_RESULT,
+        "fetched_from_api": True,
+        "reviews_considered": 10,
+        "reviews_qualifying": 10,
+        "drafts_generated": 10,
+        "digest_sent": True,
+    }
+    db_session.commit()
+
+    day_one = _state_day_one(customer)
+    assert day_one["status"] == "done"
+    assert day_one["summary"]["drafts_generated"] == 10
+    assert day_one["summary"]["digest_sent"] is True
+    assert day_one["summary"]["fetched_from_api"] is True
+
+
+def test_state_reports_failed_when_the_run_recorded_an_error(db_session, auth_settings) -> None:
+    customer = _seed_customer(db_session, email="failed@example.com", place_id="p-failed")
+    customer.day_one_started_at = datetime.now(UTC) - timedelta(seconds=5)
+    customer.day_one_finished_at = datetime.now(UTC)
+    customer.day_one_result = {**_DEFAULT_DAY_ONE_RESULT, "error": "RuntimeError: Claude is down"}
+    db_session.commit()
+
+    day_one = _state_day_one(customer)
+    assert day_one["status"] == "failed"
+    # A failed run still reports its (zeroed) summary — the panel distinguishes the two by status,
+    # and a null summary on a finished run would be indistinguishable from a still-running one.
+    assert day_one["summary"]["drafts_generated"] == 0
+
+
+def test_state_reports_stale_for_a_run_that_never_wrote_its_finish_stamp(
+    db_session, auth_settings
+) -> None:
+    """The real cause is an App Runner restart (every deploy) landing mid-run. Without this the
+    panel would poll a `running` status forever for work no process is still doing."""
+    customer = _seed_customer(db_session, email="stranded@example.com", place_id="p-stale")
+    customer.day_one_started_at = datetime.now(UTC) - STALE_RUN_AFTER - timedelta(minutes=1)
+    db_session.commit()
+
+    day_one = _state_day_one(customer)
+    assert day_one["status"] == "stale"
+    assert day_one["summary"] is None

@@ -88,6 +88,18 @@ CORS is restricted to a single origin, `APP_ORIGIN` in `.env` (default
 
 Alembic reads `DATABASE_URL` from `.env` via `app/config.py` — no separate DB config needed.
 
+**RDS is private (see `docs/CUTOVER.md` §Step 0), so any local DB work needs the bastion tunnel —
+and `DATABASE_URL` has to point at the tunnel, not at the RDS hostname.** Opening the tunnel is only
+half of it: with `DATABASE_URL` still set to
+`...@reviewpilot-db.<id>.eu-west-1.rds.amazonaws.com:5432`, every local connection bypasses the
+tunnel and hangs until it times out, because that host is unreachable from outside the VPC. While
+tunnelling, point the host at `127.0.0.1:15432` (the tunnel's local port) instead.
+
+This is also the standing explanation for `tests/test_health.py::test_health` failing locally with
+`db: error`: it is the one test that asserts the app process can actually reach the database, so it
+fails whenever `DATABASE_URL` is not routed through an open tunnel. It is environmental, not a code
+regression — every other test uses in-memory SQLite (`tests/conftest.py`) and passes regardless.
+
 ## Deploy (AWS App Runner)
 
 **Current setup (Sprint 0, ticket 0.5):** deployed via GitHub connection (`reviewpilot-github`),

@@ -7,7 +7,7 @@ is the customer-facing product).
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_customer
 from app.db import get_session
-from app.jobs.day_one import run_day_one_for_customer
+from app.jobs.day_one import STALE_RUN_AFTER, run_day_one_for_customer_locked
 from app.models import Alert, Customer, Place, Review
 from app.services.cost_guard import CostCapExceeded
 from app.services.maps_url import parse_maps_url
@@ -90,6 +90,12 @@ def search_place(
 # notification_email. Not in ticket 5.1's endpoint list — that ticket only needed to *set*
 # place_id; 5.3 is the first thing that needs to *read back* the full customer-facing state in
 # one call, per this ticket's own Cursor prompt ("add the needed GET endpoints ... if missing").
+#
+# Ticket 6.1 adds `day_one` here rather than as its own endpoint. The panel needs the run's outcome
+# AND the place/alerts data that outcome produces, so folding it into the one call the panel already
+# makes means a single thing to poll and no window where status says "done" but the place data
+# fetched alongside it is a request older. It also means a customer who reloads mid-run gets the
+# progress card on first server-rendered paint — which is exactly the case that surfaced this bug.
 
 
 class PlaceInfo(BaseModel):
@@ -100,12 +106,70 @@ class PlaceInfo(BaseModel):
     last_polled_at: datetime | None
 
 
+class DayOneSummary(BaseModel):
+    fetched_from_api: bool
+    reviews_considered: int
+    reviews_qualifying: int
+    drafts_generated: int
+    digest_sent: bool
+    capped: bool
+    cap_error: str | None
+
+
+# Ticket 6.1. Derived from customers.day_one_started_at/day_one_finished_at (migration 009), never
+# stored as its own column, so a status and its timestamps cannot disagree.
+DAY_ONE_NOT_STARTED = "not_started"
+DAY_ONE_RUNNING = "running"
+DAY_ONE_DONE = "done"
+DAY_ONE_FAILED = "failed"
+DAY_ONE_STALE = "stale"
+
+
+class DayOneRunState(BaseModel):
+    status: str
+    # Present only once the run has finished (`done` or `failed`) — there is no partial summary to
+    # report mid-run, and inventing zeros for one would render as "0 drafts" in the panel.
+    summary: DayOneSummary | None = None
+
+
+def _day_one_state(customer: Customer, now: datetime | None = None) -> DayOneRunState:
+    if customer.day_one_started_at is None:
+        return DayOneRunState(status=DAY_ONE_NOT_STARTED)
+
+    if customer.day_one_finished_at is None:
+        started = customer.day_one_started_at
+        # SQLite (the test suite's DB) drops tzinfo on a DateTime(timezone=True) round trip where
+        # RDS Postgres does not — same defensive normalization as app/jobs/day_one.py's
+        # _as_aware_utc, and for the same reason.
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if (now or datetime.now(UTC)) - started > STALE_RUN_AFTER:
+            return DayOneRunState(status=DAY_ONE_STALE)
+        return DayOneRunState(status=DAY_ONE_RUNNING)
+
+    result = customer.day_one_result or {}
+    status = DAY_ONE_FAILED if result.get("error") else DAY_ONE_DONE
+    return DayOneRunState(
+        status=status,
+        summary=DayOneSummary(
+            fetched_from_api=bool(result.get("fetched_from_api")),
+            reviews_considered=int(result.get("reviews_considered") or 0),
+            reviews_qualifying=int(result.get("reviews_qualifying") or 0),
+            drafts_generated=int(result.get("drafts_generated") or 0),
+            digest_sent=bool(result.get("digest_sent")),
+            capped=bool(result.get("capped")),
+            cap_error=result.get("cap_error"),
+        ),
+    )
+
+
 class CustomerStateResponse(BaseModel):
     email: str
     notification_email: str | None
     tone_preference: str
     connected_at: datetime | None
     place: PlaceInfo | None
+    day_one: DayOneRunState
 
 
 def _build_state_response(customer: Customer, session: Session) -> CustomerStateResponse:
@@ -126,6 +190,7 @@ def _build_state_response(customer: Customer, session: Session) -> CustomerState
         tone_preference=customer.tone_preference,
         connected_at=customer.connected_at,
         place=place_info,
+        day_one=_day_one_state(customer),
     )
 
 
@@ -262,20 +327,25 @@ class ConnectPlaceBody(BaseModel):
     rating: float | None = None
 
 
-class DayOneSummary(BaseModel):
-    fetched_from_api: bool
-    reviews_considered: int
-    reviews_qualifying: int
-    drafts_generated: int
-    digest_sent: bool
-    capped: bool
-    cap_error: str | None
-
-
 class ConnectPlaceResponse(BaseModel):
     place_id: str
     name: str | None
-    day_one: DayOneSummary
+    # Ticket 6.1: the connection itself IS complete when this returns (it is committed before the
+    # response is built) — this flag reports only whether the day-one job was handed off to run
+    # behind it. False means the customer connected but will get no welcome digest without an ops
+    # re-run, which is a different situation from "not yet finished" and must not read as success.
+    day_one_started: bool
+
+
+def _run_day_one_and_log(customer_id: int) -> None:
+    """Ticket 6.1's background entry point, mirroring app/routers/jobs.py's `_run_and_log` for the
+    poller: the job's progress goes to the service log, since there is no longer an HTTP response
+    body able to carry it back to the caller."""
+    result = run_day_one_for_customer_locked(
+        customer_id,
+        on_progress=lambda msg: logger.info("day-one[customer=%s]: %s", customer_id, msg),
+    )
+    logger.info("day-one[customer=%s]: run complete — %s", customer_id, result)
 
 
 class CouldNotResolveUrl(BaseModel):
@@ -286,12 +356,28 @@ class CouldNotResolveUrl(BaseModel):
     suggested_query: str | None = None
 
 
-@router.post("/connect-place")
+@router.post("/connect-place", status_code=202)
 def connect_place(
     body: ConnectPlaceBody,
+    background_tasks: BackgroundTasks,
     customer: Customer = Depends(get_current_customer),
     session: Session = Depends(get_session),
 ) -> ConnectPlaceResponse:
+    """Returns 202 as soon as the connection is committed, then runs day-one behind it (ticket 6.1).
+
+    Why 202 and not the old "wait for the whole thing" 200: this endpoint is called from a Next.js
+    route handler running as a Netlify serverless function, whose execution ceiling is 10s by
+    default and 26s at most, while day-one measured **58 seconds** on a real connect (10.2s
+    Outscraper + 47s of ten sequential Claude calls + 0.4s Postmark). The function was killed
+    mid-run and returned an HTML error page, which the browser then tried to parse as JSON — the
+    customer saw a raw `Unexpected token '<'` SyntaxError for a connect that had in fact succeeded
+    and whose digest had already been sent. Same failure shape, and same fix, as ticket 5.2's
+    EventBridge 5s timeout on the poller: make the response independent of the work's duration
+    rather than trying to fit unbounded work under someone else's fixed ceiling.
+
+    The day-one summary therefore cannot ride back in this response. It is persisted by
+    `run_day_one_for_customer_locked` (migration 009) and read back via GET /api/customer/state.
+    """
     if customer.place_id is not None:
         raise HTTPException(
             status_code=409,
@@ -347,33 +433,21 @@ def connect_place(
 
     place = session.get(Place, resolved_place_id)
 
-    try:
-        day_one_result = run_day_one_for_customer(session, customer, on_progress=logger.info)
-    except Exception:
-        # A day-one hiccup (a Claude/Postmark failure, say) must not undo a successful connect —
-        # the restaurant IS connected at this point; the digest can be re-run manually
-        # (python -m app.jobs.day_one --customer-id N --yes) without re-doing the connect step.
-        logger.exception("Day-one job failed for customer_id=%s", customer.customer_id)
-        day_one_result = {
-            "fetched_from_api": False,
-            "reviews_considered": 0,
-            "reviews_qualifying": 0,
-            "drafts_generated": 0,
-            "digest_sent": False,
-            "capped": False,
-            "cap_error": None,
-        }
+    # Marked as started here, in the request, rather than by the background task itself: the panel
+    # polls GET /api/customer/state immediately after this 202 lands, and a task that hasn't been
+    # given a thread yet would otherwise read back as `not_started` — indistinguishable, to the
+    # frontend, from a connect whose day-one was never scheduled at all. The background task
+    # re-stamps it with its own start time when it actually begins.
+    customer.day_one_started_at = datetime.now(UTC)
+    customer.day_one_finished_at = None
+    customer.day_one_result = None
+    session.commit()
+
+    customer_id = customer.customer_id
+    background_tasks.add_task(_run_day_one_and_log, customer_id)
 
     return ConnectPlaceResponse(
         place_id=resolved_place_id,
         name=place.name if place else resolved_name,
-        day_one=DayOneSummary(
-            fetched_from_api=day_one_result["fetched_from_api"],
-            reviews_considered=day_one_result["reviews_considered"],
-            reviews_qualifying=day_one_result["reviews_qualifying"],
-            drafts_generated=day_one_result["drafts_generated"],
-            digest_sent=day_one_result["digest_sent"],
-            capped=day_one_result["capped"],
-            cap_error=day_one_result["cap_error"],
-        ),
+        day_one_started=True,
     )

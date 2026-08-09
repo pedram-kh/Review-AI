@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Float,
@@ -77,6 +78,16 @@ class Customer(Base):
     # traction from testing. Marks only — test rows are still polled and still receive alerts,
     # since they are the live proof the poller works (see the migration's own docstring).
     is_test: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
+    # Migration 009 (ticket 6.1): day-one no longer runs inside the connect-place request, so its
+    # outcome can't ride back in that response — it lands here instead, and the panel reads it via
+    # GET /api/customer/state. Status is DERIVED from these two timestamps rather than stored
+    # separately (app/routers/customer.py's _day_one_status), so the two can never contradict:
+    # started+unfinished = running, both set = finished, neither = never ran.
+    day_one_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    day_one_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The run's own result dict (app/jobs/day_one.py's `_empty_result` shape), plus an "error" key
+    # when the run raised. Written once, when the run ends.
+    day_one_result: Mapped[dict | None] = mapped_column(JSON)
 
 
 class AuthToken(Base):

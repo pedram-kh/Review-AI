@@ -33,7 +33,11 @@ HEALTH_FLAG_MARKER = "HEALTH_FLAG"
 # 1.2.1 -> 1.4 (ticket 5.8, 2026-08-09): the star-only branch (KROK 0a) below. Both prompt
 # variants move to 1.4 together per the PM's instruction, converging the two lineages that had
 # drifted apart at 1.2.1 (negative) and 1.3 (positive).
-PROMPT_VERSION = "1.4"
+# 1.4 -> 1.4.1 (same day, found while regenerating the nine star-only drafts under the approved
+# v1.4): KROK 0's language step detects the language OF THE REVIEW, so a review with no text gives
+# it nothing to detect and the output language became a coin flip — two of the nine came back in
+# English for a Warsaw restaurant. KROK 0a now names Polish as the fallback. PENDING PM APPROVAL.
+PROMPT_VERSION = "1.4.1"
 
 RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na recenzje Google
 profesjonalnie i z klasą. Napisz odpowiedź właściciela na poniższą recenzję.
@@ -56,7 +60,9 @@ krótkie zdanie ubolewania, że wizyta nie spełniła oczekiwań (tylko gdy ocen
 mniej) → zaproszenie do kontaktu bezpośredniego, aby poznać szczegóły. Absolutnie NIC nie
 wymyślaj: nie zgaduj dania, obsługi, czasu oczekiwania, ceny, powodu oceny ani przebiegu wizyty,
 nie odwołuj się do szczegółów, których w recenzji nie ma, i nie wspominaj adresu ani lokalizacji
-restauracji. Pozostałe zasady (KROK 0, 2a, 5, 6) obowiązują bez zmian.
+restauracji. Pusta recenzja nie daje ŻADNEJ wskazówki co do języka — w takim wypadku KROK 0 nie ma
+czego wykrywać i odpowiedź jest po polsku (język lokalu). Pozostałe zasady (2a, 5, 6) obowiązują
+bez zmian.
 
 Zasady (przestrzegaj WSZYSTKICH):
 1. Język odpowiedzi = język recenzji (KROK 0).
@@ -89,7 +95,8 @@ HEALTH_FLAG_SUFFIX = "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zer
 # 1.3 -> 1.4 (ticket 5.8, 2026-08-09): the star-only branch (KROK 0a) below, same change and same
 # version number as RESPONSE_PROMPT — the PM asked for both variants to carry it, so the two
 # lineages converge here rather than drifting further apart.
-POSITIVE_PROMPT_VERSION = "1.4"
+# 1.4 -> 1.4.1: the same Polish-fallback line as RESPONSE_PROMPT, same discovery, same commit.
+POSITIVE_PROMPT_VERSION = "1.4.1"
 
 POSITIVE_RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na pozytywne recenzje Google
 ciepło i z klasą, bez sztampowych fraz. Napisz odpowiedź właściciela na poniższą recenzję.
@@ -111,7 +118,9 @@ Wtedy odpowiedź ma 25–50 słów i zastępuje zasady 3 i 4: ciepłe podziękow
 zaproszenie do ponownej wizyty. Absolutnie NIC nie wymyślaj: nie zgaduj dania, obsługi, powodu
 oceny ani przebiegu wizyty (nie pisz, że gość jadł, siedział przy stoliku, spędził u nas czas ani
 co mu smakowało), nie odwołuj się do szczegółów, których w recenzji nie ma, i nie wspominaj adresu
-ani lokalizacji restauracji. Pozostałe zasady (KROK 0, 2a, 5, 6) obowiązują bez zmian.
+ani lokalizacji restauracji. Pusta recenzja nie daje ŻADNEJ wskazówki co do języka — w takim
+wypadku KROK 0 nie ma czego wykrywać i odpowiedź jest po polsku (język lokalu). Pozostałe zasady
+(2a, 5, 6) obowiązują bez zmian.
 
 Zasady (przestrzegaj WSZYSTKICH):
 1. Język odpowiedzi = język recenzji (KROK 0).

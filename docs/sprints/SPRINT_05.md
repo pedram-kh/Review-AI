@@ -135,6 +135,11 @@ _(none at open)_
 - Which real restaurant to connect for the milestone test (high review volume recommended)
 ```
 
+## Prompt v1.4.1 (ticket 5.8 amendment, 2026-08-09, PENDING PM APPROVAL — the same one-sentence
+Polish-fallback addition as SPRINT_02.md's v1.4.1: a review with no text gives KROK 0's language
+detection nothing to work with, so the output language was a coin flip until KROK 0a named a
+default. See that note for the full finding. The v1.4 note below is unchanged.)
+
 ## Prompt v1.4 (ticket 5.8, 2026-08-09 — the same KROK 0a star-only branch added to the negative
 variant in SPRINT_02.md, worded for the thank-you case: empty or <20-char review → 25–50 words, warm
 thanks + invitation to return, zero invented specifics. The "no invented specifics" list here names
@@ -176,7 +181,9 @@ Wtedy odpowiedź ma 25–50 słów i zastępuje zasady 3 i 4: ciepłe podziękow
 zaproszenie do ponownej wizyty. Absolutnie NIC nie wymyślaj: nie zgaduj dania, obsługi, powodu
 oceny ani przebiegu wizyty (nie pisz, że gość jadł, siedział przy stoliku, spędził u nas czas ani
 co mu smakowało), nie odwołuj się do szczegółów, których w recenzji nie ma, i nie wspominaj adresu
-ani lokalizacji restauracji. Pozostałe zasady (KROK 0, 2a, 5, 6) obowiązują bez zmian.
+ani lokalizacji restauracji. Pusta recenzja nie daje ŻADNEJ wskazówki co do języka — w takim
+wypadku KROK 0 nie ma czego wykrywać i odpowiedź jest po polsku (język lokalu). Pozostałe zasady
+(2a, 5, 6) obowiązują bez zmian.
 
 Zasady (przestrzegaj WSZYSTKICH):
 1. Język odpowiedzi = język recenzji (KROK 0).

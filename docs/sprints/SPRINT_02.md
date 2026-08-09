@@ -13,6 +13,14 @@
 
 ---
 
+## Prompt v1.4.1 (ticket 5.8 amendment, 2026-08-09, PENDING PM APPROVAL — found while running the
+approved v1.4 over the nine star-only drafts: KROK 0 sets the response language by detecting the
+language *of the review*, so a review with no text leaves it nothing to detect and the output
+language became a coin flip. Two of the nine came back in English for a Warsaw restaurant, and the
+same run produced Polish for the identical input during the earlier verification. KROK 0a now names
+Polish as the fallback when there is no text to detect from. One sentence, no other change; the v1.4
+note below is unchanged.)
+
 ## Prompt v1.4 (ticket 5.8, 2026-08-09 — Stakeholder finding: System B drafts full-length responses
 for star-only reviews, because the lead engine's Q4 >=80-char rule never applied to the customer path
 and the prompt had no branch for "no material". Adds KROK 0a: empty or <20-char review → 25–50 words,
@@ -54,7 +62,9 @@ krótkie zdanie ubolewania, że wizyta nie spełniła oczekiwań (tylko gdy ocen
 mniej) → zaproszenie do kontaktu bezpośredniego, aby poznać szczegóły. Absolutnie NIC nie
 wymyślaj: nie zgaduj dania, obsługi, czasu oczekiwania, ceny, powodu oceny ani przebiegu wizyty,
 nie odwołuj się do szczegółów, których w recenzji nie ma, i nie wspominaj adresu ani lokalizacji
-restauracji. Pozostałe zasady (KROK 0, 2a, 5, 6) obowiązują bez zmian.
+restauracji. Pusta recenzja nie daje ŻADNEJ wskazówki co do języka — w takim wypadku KROK 0 nie ma
+czego wykrywać i odpowiedź jest po polsku (język lokalu). Pozostałe zasady (2a, 5, 6) obowiązują
+bez zmian.
 
 Zasady (przestrzegaj WSZYSTKICH):
 1. Język odpowiedzi = język recenzji (KROK 0).

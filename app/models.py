@@ -156,4 +156,7 @@ class Alert(Base):
     kind: Mapped[str] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     postmark_message_id: Mapped[str | None] = mapped_column(Text)
+    # Migration 008: why this row's content is not simply what the generator first produced —
+    # e.g. ticket 5.8's "regenerated v1.4" marks. Same role as leads.notes on the System A side.
+    notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

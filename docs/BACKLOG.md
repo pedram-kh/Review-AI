@@ -20,6 +20,7 @@
 | Landing page A/B on demo block | PM suggestion | Post-launch |
 | Multi-location support for restaurant groups | PM suggestion | Post-launch |
 | English/international version | — | Far future |
+| Serious-allegation flag: extend §2-style gating beyond health to crime/theft/harassment/discrimination keyword classes — leads with such reviews never auto-queue | Lead 76 (Mezza Lounge & Bar), 2026-08-09 | Sprint 6 |
 
 ## How to add
 

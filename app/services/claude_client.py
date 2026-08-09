@@ -16,7 +16,18 @@ from app.services.claude_guard import MAX_CLAUDE_CALLS_PER_RUN, ClaudeCallCapExc
 MODEL = "claude-sonnet-5"
 # Raised from 350 in prompt v1.2: Polish tokenizes into more tokens than English, and long
 # responses were being truncated mid-word at 350 (found in the v1.1 batch, leads 21 and 22).
-MAX_TOKENS = 500
+#
+# Raised again 500 -> 1200 (ticket 5.8, 2026-08-09) after finding the real cause of that whole
+# family of truncations, which the 350 -> 500 bump only made rarer instead of fixing. This model
+# emits `thinking` blocks that are billed and counted against max_tokens, but `_call` below keeps
+# only `type == "text"` blocks — so the visible answer never gets the full budget. Measured on a
+# live replay of alert 25's star-only input: 485 output tokens, of which 299 were thinking, i.e.
+# ~60% of the ceiling spent before the response text started. Reviews with little or no text are
+# the worst case (the model deliberates longest when there is nothing to work with), which is
+# exactly where the three live max_tokens truncations landed (alerts 21, 22, 25 — all star-only).
+# Headroom, not a length change: the word limits in app/prompts.py bound the actual response, and
+# generation stops at end_turn, so a higher ceiling costs nothing extra on a normal call.
+MAX_TOKENS = 1200
 
 # The SDK's stop_reason when generation was cut off by max_tokens rather than finishing.
 STOP_REASON_MAX_TOKENS = "max_tokens"

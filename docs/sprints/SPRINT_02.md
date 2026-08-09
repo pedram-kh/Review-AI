@@ -13,6 +13,14 @@
 
 ---
 
+## Prompt v1.4 (ticket 5.8, 2026-08-09 — Stakeholder finding: System B drafts full-length responses
+for star-only reviews, because the lead engine's Q4 >=80-char rule never applied to the customer path
+and the prompt had no branch for "no material". Adds KROK 0a: empty or <20-char review → 25–50 words,
+warm and generic, zero invented specifics. Both variants carry the same branch and both move to v1.4,
+converging the negative (1.2.1) and positive (1.3) lineages. Zero effect on reviews with real text —
+System A leads all pass Q4 by construction, so KROK 0a can never fire there. The v1.2.1 and v1.2 notes
+below are unchanged history; the block underneath is the current v1.4 text.)
+
 ## Prompt v1.2.1 (PM amendment 2026-08-07, off SPRINT_05.md ticket 5.1's live verification: added
 the third-language KROK 0 line — a live draft's organic Ukrainian-language review showed the model
 already generalizes past PL/EN correctly on its own, so this makes it an explicit rule with an
@@ -39,9 +47,18 @@ Recenzja w innym języku niż polski lub angielski → CAŁA odpowiedź w język
 jak dla polskiego.
 Nigdy nie mieszaj języków.
 
+KROK 0a — RECENZJA BEZ TREŚCI (sprawdź zaraz po KROKU 0): jeśli pole <recenzja> jest puste albo
+krótsze niż 20 znaków, recenzent nie podał ŻADNYCH szczegółów — została sama ocena w gwiazdkach.
+Wtedy odpowiedź ma 25–50 słów i zastępuje zasady 3 i 4: podziękowanie za wystawioną ocenę → jedno
+krótkie zdanie ubolewania, że wizyta nie spełniła oczekiwań (tylko gdy ocena to 3 gwiazdki lub
+mniej) → zaproszenie do kontaktu bezpośredniego, aby poznać szczegóły. Absolutnie NIC nie
+wymyślaj: nie zgaduj dania, obsługi, czasu oczekiwania, ceny, powodu oceny ani przebiegu wizyty,
+nie odwołuj się do szczegółów, których w recenzji nie ma, i nie wspominaj adresu ani lokalizacji
+restauracji. Pozostałe zasady (KROK 0, 2a, 5, 6) obowiązują bez zmian.
+
 Zasady (przestrzegaj WSZYSTKICH):
 1. Język odpowiedzi = język recenzji (KROK 0).
-2. Limit słów wg KROKU 0; 120 to twardy limit. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
+2. Limit słów wg KROKU 0 (lub 25–50 słów wg KROKU 0a); 120 to twardy limit. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
 2a. BEZ podpisu i formuły końcowej — żadnych "Z poważaniem", "Kind regards", "Pozdrawiam", nazwy
 restauracji ani słowa "Właściciel" na końcu (Google i tak oznacza odpowiedź jako odpowiedź właściciela).
 Krótkie powitanie ("Szanowni Państwo," / "Dear Guest,") jest dozwolone; tekst kończy się ostatnim zdaniem treści.
@@ -50,12 +67,13 @@ Krótkie powitanie ("Szanowni Państwo," / "Dear Guest,") jest dozwolone; tekst 
 5. NIGDY: nie potwierdzaj zarzutów jako faktów, ale też NIE ZAPRZECZAJ im i nie zapewniaj, że jest inaczej (żadnych "zapewniam, że..."); nie przyznawaj odpowiedzialności prawnej, nie kłóć się, nie obwiniaj recenzenta, nie wymyślaj faktów/rekompensat/zwolnień personelu, nie wspominaj o AI. Wobec spornych faktów pozostań neutralny: przyjmij zgłoszenie, obiecaj uwagę, przenieś rozmowę do kontaktu bezpośredniego.
 6. Ton: zajęty właściciel, któremu naprawdę zależy — nie dział PR.
 
-Przed odpowiedzią sprawdź w myślach: język zgodny z KROKIEM 0? limit słów zachowany? bez podpisu
+Przed odpowiedzią sprawdź w myślach: język zgodny z KROKIEM 0? recenzja bez treści — czy zadziałał
+KROK 0a (25–50 słów, zero wymyślonych konkretów)? limit słów zachowany? bez podpisu
 na końcu (2a)? zasady 3–6 spełnione? Popraw, jeśli trzeba.
 Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy.
 ```
 
-(`max_tokens=500` (raised from 350 in v1.2 — PL tokenization + long responses truncated mid-word at 350), expect ~150–300 output tokens. Health-flagged leads use the same prompt + appended line: "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zero języka przyznającego cokolwiek, zero ogłaszania nowych procedur lub zmian, wyrazy ubolewania bez przepraszania za konkretny zarzut, maksymalnie neutralnie, priorytet kontaktu bezpośredniego.")
+(`max_tokens=1200` (350 → 500 in v1.2 for PL tokenization; 500 → 1200 in v1.4 / ticket 5.8 after finding the actual cause of that truncation family — the model's `thinking` blocks are counted against `max_tokens` but stripped from the stored text, measured at 299 of 485 output tokens on a live star-only replay, so the visible answer never had the full budget), expect ~150–300 output tokens of response text plus thinking. Health-flagged leads use the same prompt + appended line: "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zero języka przyznającego cokolwiek, zero ogłaszania nowych procedur lub zmian, wyrazy ubolewania bez przepraszania za konkretny zarzut, maksymalnie neutralnie, priorytet kontaktu bezpośredniego.")
 
 ## Outreach template v1 (PM draft — STAKEHOLDER MUST APPROVE before ticket 2.4 closes)
 

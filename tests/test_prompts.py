@@ -68,6 +68,14 @@ def test_render_fills_every_placeholder() -> None:
     assert "{" not in prompt and "}" not in prompt
 
 
+def test_prompt_carries_the_star_only_branch() -> None:
+    # Ticket 5.8: the KROK 0a branch is the whole point of v1.4, and doc-parity alone would happily
+    # pass if it were dropped from both places at once.
+    assert "KROK 0a" in RESPONSE_PROMPT
+    assert "25–50 słów" in RESPONSE_PROMPT
+    assert "krótsze niż 20 znaków" in RESPONSE_PROMPT
+
+
 def test_render_omits_health_flag_suffix_for_normal_lead() -> None:
     assert HEALTH_FLAG_SUFFIX not in render(_lead())
 

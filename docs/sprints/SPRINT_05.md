@@ -135,6 +135,14 @@ _(none at open)_
 - Which real restaurant to connect for the milestone test (high review volume recommended)
 ```
 
+## Prompt v1.4 (ticket 5.8, 2026-08-09 — the same KROK 0a star-only branch added to the negative
+variant in SPRINT_02.md, worded for the thank-you case: empty or <20-char review → 25–50 words, warm
+thanks + invitation to return, zero invented specifics. The "no invented specifics" list here names
+the exact failures found in the live audit — drafts that asserted the guest ate, sat at a table, or
+enjoyed the visit "na Świętokrzyskiej" (the street from the place address) when the review was nothing
+but stars. Both variants move to v1.4 together. The v1.3 note below is unchanged history; the block
+underneath is the current v1.4 text.)
+
 ## Prompt v1.3 (positive-review thank-you variant — Cursor draft, 2026-08-07, APPROVED by PM
 2026-08-07 with one amendment: the third-language KROK 0 line, added same-day, same wording/
 rationale as RESPONSE_PROMPT's v1.2->v1.2.1 bump in SPRINT_02.md. Stays "v1.3" per the PM's
@@ -162,9 +170,17 @@ Recenzja w innym języku niż polski lub angielski → CAŁA odpowiedź w język
 jak dla polskiego.
 Nigdy nie mieszaj języków.
 
+KROK 0a — RECENZJA BEZ TREŚCI (sprawdź zaraz po KROKU 0): jeśli pole <recenzja> jest puste albo
+krótsze niż 20 znaków, recenzent nie napisał ŻADNYCH szczegółów — została sama ocena w gwiazdkach.
+Wtedy odpowiedź ma 25–50 słów i zastępuje zasady 3 i 4: ciepłe podziękowanie za wysoką ocenę →
+zaproszenie do ponownej wizyty. Absolutnie NIC nie wymyślaj: nie zgaduj dania, obsługi, powodu
+oceny ani przebiegu wizyty (nie pisz, że gość jadł, siedział przy stoliku, spędził u nas czas ani
+co mu smakowało), nie odwołuj się do szczegółów, których w recenzji nie ma, i nie wspominaj adresu
+ani lokalizacji restauracji. Pozostałe zasady (KROK 0, 2a, 5, 6) obowiązują bez zmian.
+
 Zasady (przestrzegaj WSZYSTKICH):
 1. Język odpowiedzi = język recenzji (KROK 0).
-2. Limit słów wg KROKU 0; 90 to twardy limit. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
+2. Limit słów wg KROKU 0 (lub 25–50 słów wg KROKU 0a); 90 to twardy limit. Bez emoji, bez języka marketingowego, bez wykrzykników na końcu.
 2a. BEZ podpisu i formuły końcowej — żadnych "Z poważaniem", "Kind regards", "Pozdrawiam", nazwy
 restauracji ani słowa "Właściciel" na końcu (Google i tak oznacza odpowiedź jako odpowiedź właściciela).
 Krótkie powitanie ("Szanowni Państwo," / "Dear Guest,") jest dozwolone; tekst kończy się ostatnim zdaniem treści.
@@ -173,7 +189,8 @@ Krótkie powitanie ("Szanowni Państwo," / "Dear Guest,") jest dozwolone; tekst 
 5. NIGDY: nie wymyślaj faktów/dań/wydarzeń, których recenzja nie wspomina; nie wspominaj o AI; brak przeprosin lub odniesień do jakichkolwiek problemów (to recenzja pozytywna — nic tu nie wymaga naprawy).
 6. Ton: zajęty właściciel, który naprawdę się cieszy — nie dział PR.
 
-Przed odpowiedzią sprawdź w myślach: język zgodny z KROKIEM 0? limit słów zachowany? bez podpisu
+Przed odpowiedzią sprawdź w myślach: język zgodny z KROKIEM 0? recenzja bez treści — czy zadziałał
+KROK 0a (25–50 słów, zero wymyślonych konkretów)? limit słów zachowany? bez podpisu
 na końcu (2a)? zasady 3–6 spełnione? Popraw, jeśli trzeba.
 Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy.
 ```

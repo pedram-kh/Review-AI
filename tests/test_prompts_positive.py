@@ -55,6 +55,20 @@ def test_positive_prompt_version_matches_sprint_05_heading() -> None:
     assert POSITIVE_PROMPT_VERSION == _sprint_doc_heading_version()
 
 
+def test_positive_prompt_carries_the_star_only_branch() -> None:
+    # Ticket 5.8: both variants carry KROK 0a — the customer path drafts for every review, so a
+    # star-only 5-star is just as likely to reach this template as a star-only 1-star is the other.
+    assert "KROK 0a" in POSITIVE_RESPONSE_PROMPT
+    assert "25–50 słów" in POSITIVE_RESPONSE_PROMPT
+    assert "krótsze niż 20 znaków" in POSITIVE_RESPONSE_PROMPT
+
+
+def test_star_only_branch_reaches_both_templates_through_render_for_customer() -> None:
+    # The branch is worthless if it only lands on one side of render_for_customer()'s rating split.
+    for rating in (1, 3, 4, 5, None):
+        assert "KROK 0a" in render_for_customer(_lead(rating=rating, review_text=""))
+
+
 def test_render_for_customer_uses_positive_prompt_at_threshold_and_above() -> None:
     for rating in (4, 5):
         prompt = render_for_customer(_lead(rating=rating))

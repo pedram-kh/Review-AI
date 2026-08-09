@@ -111,3 +111,37 @@ doc-parity tests still pin the code side.
 Playwright green, grep proof for Part A, the LOGIC.md diff, and Part E's live-send evidence.
 
 **Full evidence:** see the 6.2 row in `docs/PROGRESS.md`'s current-sprint table.
+
+---
+
+## 6.3 — `/app` hydration mismatch on timestamps
+
+**Origin:** surfaced by 6.2's post-deploy console check, 2026-08-09 — the first time a console
+listener was attached to a logged-in `/app` holding real data. **Not a 6.2 regression:** `git log -S`
+places both render sites in ticket 5.3's commit `594ad72`, and 6.2's diff touches no date code. Filed
+as its own ticket at PM direction rather than folded into a deploy ticket.
+
+**Symptom:** the deployed `/app` throws one **React #418** ("text content does not match
+server-rendered HTML") on every load. The page renders correctly and React recovers with the client
+value, so no customer sees a wrong time — but a hydration mismatch discards and re-renders the
+subtree, and it puts a permanent error in the console where a real one would then be easy to miss.
+
+**Cause:** `lib/format.ts`'s `formatDateTimePl` calls `toLocaleString("pl-PL", …)` with **no
+`timeZone`**, so the string depends on the machine's zone. Next.js server-renders client components,
+and the server runs UTC while the browser runs Europe/Warsaw — two different strings for the same
+instant. Two render sites: `AlertsList.tsx` (`alert.review_date ?? alert.created_at`) and
+`CustomerPanel.tsx`'s `last_polled_at`.
+
+**Scope:**
+1. Pin the zone explicitly — `timeZone: "Europe/Warsaw"` — rather than suppressing the warning with
+   `suppressHydrationWarning`, which would hide the mismatch while still shipping UTC text on first
+   paint. Warsaw is the right constant here for the same reason the poller window is: the product is
+   Polish-market (ROADMAP §4b's geographic-scope decision explicitly accepts a Warsaw-time product
+   for foreign signups).
+2. Check `formatDate` / `formatDateTime` (the en-GB `/admin` pair) for the same defect and fix them
+   together if so.
+3. Add a test that pins the formatters' output under a non-Warsaw `TZ`, so the bug cannot return by
+   someone dropping the option again.
+
+**Done when:** the deployed `/app` loads with **zero** console errors, the timestamps still read as
+Warsaw local time, and the new test fails if `timeZone` is removed.

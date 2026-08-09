@@ -55,6 +55,13 @@ def test_positive_prompt_version_matches_sprint_05_heading() -> None:
     assert POSITIVE_PROMPT_VERSION == _sprint_doc_heading_version()
 
 
+def test_positive_prompt_persona_is_not_pinned_to_one_city() -> None:
+    # Ticket 5.8 / v1.4.1 — this is the variant that most needed it: System B is the path where a
+    # connected restaurant may not be in Warsaw at all.
+    assert "w Warszawie" not in POSITIVE_RESPONSE_PROMPT
+    assert 'miasto="{city}"' in POSITIVE_RESPONSE_PROMPT
+
+
 def test_positive_prompt_carries_the_star_only_branch() -> None:
     # Ticket 5.8: both variants carry KROK 0a — the customer path drafts for every review, so a
     # star-only 5-star is just as likely to reach this template as a star-only 1-star is the other.

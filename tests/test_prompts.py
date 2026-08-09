@@ -6,6 +6,7 @@ from app.prompts import (
     HEALTH_FLAG_SUFFIX,
     PROMPT_VERSION,
     RESPONSE_PROMPT,
+    UNKNOWN_CITY,
     UNKNOWN_DATE,
     UNKNOWN_RATING,
     LeadContext,
@@ -66,6 +67,18 @@ def test_render_fills_every_placeholder() -> None:
     assert "Czekaliśmy 40 minut na zupę, a kelner był opryskliwy." in prompt
     # No unfilled placeholders left behind.
     assert "{" not in prompt and "}" not in prompt
+
+
+def test_prompt_persona_is_not_pinned_to_one_city() -> None:
+    # Ticket 5.8 / v1.4.1: System B customers are not all in Warsaw, so the city comes from
+    # places.city rather than being baked into the persona.
+    assert "w Warszawie" not in RESPONSE_PROMPT
+    assert 'miasto="{city}"' in RESPONSE_PROMPT
+
+
+def test_render_uses_the_leads_city_and_falls_back_when_missing() -> None:
+    assert 'miasto="Kraków"' in render(_lead(city="Kraków"))
+    assert f'miasto="{UNKNOWN_CITY}"' in render(_lead(city=None))
 
 
 def test_prompt_carries_the_star_only_branch() -> None:

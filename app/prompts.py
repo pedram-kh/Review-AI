@@ -36,13 +36,15 @@ HEALTH_FLAG_MARKER = "HEALTH_FLAG"
 # 1.4 -> 1.4.1 (same day, found while regenerating the nine star-only drafts under the approved
 # v1.4): KROK 0's language step detects the language OF THE REVIEW, so a review with no text gives
 # it nothing to detect and the output language became a coin flip — two of the nine came back in
-# English for a Warsaw restaurant. KROK 0a now names Polish as the fallback. PENDING PM APPROVAL.
+# English for a Warsaw restaurant. KROK 0a now names Polish as the fallback. Same version also
+# carries the customer-path persona fix (PM's third ask, not shipped in v1.4): the hardcoded
+# "w Warszawie" is gone in favour of a city-derived `<restauracja miasto="...">` attribute.
 PROMPT_VERSION = "1.4.1"
 
-RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na recenzje Google
+RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji, który odpowiada na recenzje Google
 profesjonalnie i z klasą. Napisz odpowiedź właściciela na poniższą recenzję.
 
-<restauracja>{name}, {address}</restauracja>
+<restauracja miasto="{city}">{name}, {address}</restauracja>
 <recenzja ocena="{rating}/5" data="{review_date}">{review_text}</recenzja>
 
 KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
@@ -98,10 +100,10 @@ HEALTH_FLAG_SUFFIX = "UWAGA: recenzja dotyczy bezpieczeństwa żywności — zer
 # 1.4 -> 1.4.1: the same Polish-fallback line as RESPONSE_PROMPT, same discovery, same commit.
 POSITIVE_PROMPT_VERSION = "1.4.1"
 
-POSITIVE_RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na pozytywne recenzje Google
+POSITIVE_RESPONSE_PROMPT = """Jesteś doświadczonym właścicielem restauracji, który odpowiada na pozytywne recenzje Google
 ciepło i z klasą, bez sztampowych fraz. Napisz odpowiedź właściciela na poniższą recenzję.
 
-<restauracja>{name}, {address}</restauracja>
+<restauracja miasto="{city}">{name}, {address}</restauracja>
 <recenzja ocena="{rating}/5" data="{review_date}">{review_text}</recenzja>
 
 KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.
@@ -141,6 +143,7 @@ Zwróć WYŁĄCZNIE finalny tekst odpowiedzi, bez komentarzy."""
 # Shown in place of a missing value rather than letting "None" leak into the prompt.
 UNKNOWN_DATE = "nieznana"
 UNKNOWN_RATING = "?"
+UNKNOWN_CITY = "nieznane"
 
 # Outscraper returns review text with literal <br> tags as line breaks (seen live in ticket
 # 2.1's render check). Normalize them so the tuning batch judges prompt quality on clean input.
@@ -169,6 +172,11 @@ class LeadContext:
     review_date: datetime | None
     review_text: str | None
     notes: str | None = None
+    # Ticket 5.8 / prompt v1.4.1: the persona used to hardcode "właścicielem restauracji w
+    # Warszawie", which is true of every System A lead (the discovery job only searches Warsaw)
+    # but not of System B — a customer can connect a restaurant in any city. Last field with a
+    # default so generate.py's positional `LeadContext(*row[1:])` unpacking stays valid.
+    city: str | None = None
 
     @property
     def is_health_flagged(self) -> bool:
@@ -186,6 +194,7 @@ def _fill(template: str, lead: LeadContext) -> str:
     return template.format(
         name=lead.name or "",
         address=lead.address or "",
+        city=lead.city or UNKNOWN_CITY,
         rating=lead.rating if lead.rating is not None else UNKNOWN_RATING,
         review_date=lead.review_date.date().isoformat() if lead.review_date else UNKNOWN_DATE,
         review_text=normalize_review_text(lead.review_text or ""),

@@ -138,7 +138,13 @@ _(none at open)_
 ## Prompt v1.4.1 (ticket 5.8 amendment, 2026-08-09, PENDING PM APPROVAL — the same one-sentence
 Polish-fallback addition as SPRINT_02.md's v1.4.1: a review with no text gives KROK 0's language
 detection nothing to work with, so the output language was a coin flip until KROK 0a named a
-default. See that note for the full finding. The v1.4 note below is unchanged.)
+default. See that note for the full finding.
+
+Also carries the same **customer-path persona fix** as SPRINT_02.md's v1.4.1 — the hardcoded
+"w Warszawie" is gone, replaced by a city-derived `<restauracja miasto="{city}">` attribute with a
+neutral persona and a `nieznane` fallback. This variant is the one that most needed it: System B is
+exactly the path where a connected restaurant may not be in Warsaw at all. The v1.4 note below is
+unchanged.)
 
 ## Prompt v1.4 (ticket 5.8, 2026-08-09 — the same KROK 0a star-only branch added to the negative
 variant in SPRINT_02.md, worded for the thank-you case: empty or <20-char review → 25–50 words, warm
@@ -161,10 +167,10 @@ LOGIC.md §8a: ratings >=4 get this instead of the negative RESPONSE_PROMPT (doc
 doc-parity checks for the negative prompt).
 
 ```
-Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na pozytywne recenzje Google
+Jesteś doświadczonym właścicielem restauracji, który odpowiada na pozytywne recenzje Google
 ciepło i z klasą, bez sztampowych fraz. Napisz odpowiedź właściciela na poniższą recenzję.
 
-<restauracja>{name}, {address}</restauracja>
+<restauracja miasto="{city}">{name}, {address}</restauracja>
 <recenzja ocena="{rating}/5" data="{review_date}">{review_text}</recenzja>
 
 KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.

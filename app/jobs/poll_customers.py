@@ -529,6 +529,7 @@ def run_poll_customers(
             review_date=review.review_date,
             review_text=review.text,
             notes=f"HEALTH_FLAG: {keyword}" if keyword else None,
+            city=place.city,
         )
         try:
             generated = client.generate_customer_response(lead)

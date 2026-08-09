@@ -80,6 +80,8 @@ def _lead_context_columns():
             Review.review_date,
             Review.text,
             Lead.notes,
+            # Must stay last: LeadContext's fields are unpacked positionally from this select.
+            Place.city,
         )
         .select_from(Lead)
         .join(Place, Place.place_id == Lead.place_id)
@@ -126,7 +128,7 @@ def load_generated_batch(session: Session) -> list[tuple[GenerationTarget, str, 
     stmt = stmt.where(Lead.generated_response.isnot(None))
 
     return [
-        (GenerationTarget(lead_id=row[0], context=LeadContext(*row[1:7])), row[7], row[8])
+        (GenerationTarget(lead_id=row[0], context=LeadContext(*row[1:8])), row[8], row[9])
         for row in session.execute(stmt)
     ]
 

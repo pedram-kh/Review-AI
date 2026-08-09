@@ -18,8 +18,21 @@ approved v1.4 over the nine star-only drafts: KROK 0 sets the response language 
 language *of the review*, so a review with no text leaves it nothing to detect and the output
 language became a coin flip. Two of the nine came back in English for a Warsaw restaurant, and the
 same run produced Polish for the identical input during the earlier verification. KROK 0a now names
-Polish as the fallback when there is no text to detect from. One sentence, no other change; the v1.4
-note below is unchanged.)
+Polish as the fallback when there is no text to detect from.
+
+**Second change in the same version — the customer-path persona fix (PM's third ask, and the honest
+answer is that it did NOT ship in v1.4; nothing in that commit touched the line).** The persona read
+"Jesteś doświadczonym właścicielem restauracji **w Warszawie**", which is true of every System A lead
+by construction — `app/jobs/discover.py` only ever searches `CITY = "Warszawa"` — but false for
+System B, where a customer can connect a restaurant in any city. The city is now derived from
+`places.city` and carried as an attribute on the existing structured tag,
+`<restauracja miasto="{city}">`, with the persona itself left neutral; `UNKNOWN_CITY = "nieznane"`
+when the column is empty, matching how `UNKNOWN_DATE`/`UNKNOWN_RATING` already handle missing values.
+**Why an attribute and not inline prose:** Polish needs the locative case after "w" — "w Krakowie",
+"w Gdańsku", "w Łodzi" — which cannot be derived from an arbitrary nominative city name without a
+declension table, so interpolating `w {city}` would have produced "w Kraków". Tag attributes are
+naturally nominative, so this sidesteps declension entirely while still telling the model the real
+city. The v1.4 note below is unchanged.)
 
 ## Prompt v1.4 (ticket 5.8, 2026-08-09 — Stakeholder finding: System B drafts full-length responses
 for star-only reviews, because the lead engine's Q4 >=80-char rule never applied to the customer path
@@ -41,10 +54,10 @@ test suite. v1.2 note below unchanged.)
 System/user prompt template for claude-sonnet-5 (one call per lead, temperature default):
 
 ```
-Jesteś doświadczonym właścicielem restauracji w Warszawie, który odpowiada na recenzje Google
+Jesteś doświadczonym właścicielem restauracji, który odpowiada na recenzje Google
 profesjonalnie i z klasą. Napisz odpowiedź właściciela na poniższą recenzję.
 
-<restauracja>{name}, {address}</restauracja>
+<restauracja miasto="{city}">{name}, {address}</restauracja>
 <recenzja ocena="{rating}/5" data="{review_date}">{review_text}</recenzja>
 
 KROK 0 — JĘZYK (najwyższy priorytet): najpierw ustal język recenzji.

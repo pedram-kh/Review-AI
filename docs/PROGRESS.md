@@ -172,6 +172,46 @@ _(none at open — Stakeholder actions table gated 4.2/4.3 mid-ticket; all clear
 ### Sprint 5 blockers
 _(none at open)_
 
+### Sprint 5 — pre-close cleanup: who is Customer 14? (Stakeholder/PM, 2026-08-09)
+
+PM asked, before sprint close, to identify the second customer appearing in the poller's logs and
+confirm it wasn't an unexpected real signup. **It is the Stakeholder's own walkthrough account, and
+it is not a real signup:** `customer_id 14`, login `pedram@reviewguide.eu` (company domain), signed
+up 2026-08-08 03:56 CEST and connected a restaurant 2 minutes later — a manual test pattern, not
+organic use. The connected place is **Istanbul Kitchen, San Leandro, California** (`ChIJ-wSQPwCRj4ARwlZdXQpfieE`),
+i.e. a search-and-pick target for exercising ticket 5.3's connect flow, with no plausible customer
+relationship. Its 10 alerts are all day-one digests from 01:58 UTC, all unsent (composed before
+5.4's send gates were flipped that afternoon). **Zero billing exposure:** the Stripe key in prod is
+`sk_test_`, and both live subscriptions come back `livemode: false` (`sub_1U1zVRIDs1qO8e1TZH92i0UF`
+trialing to Aug 22, `sub_1U1lAXIDs1qO8e1Tnp2yfvlA` to Aug 21) — test-mode rows that can never charge.
+It was flagged to the Stakeholder when it first appeared (2026-08-08) and not disputed.
+
+**The honest finding underneath the question, and what was done about it:** the row was *not*
+"known/flagged" in any machine-readable sense, and neither was customer 13. `customers` had no test
+flag and no naming convention — "STAKEHOLDER-TEST" only ever existed as a label in this file. Nothing
+in production could tell traction from testing. Harmless while every row is a test row; wrong the
+moment the first real signup lands. Fixed with **migration 007** (`customers.is_test`, default false
+so a real signup is never mis-flagged by omission), surfaced in both admin customer views as a badge
+plus a "N real · M test" count, and applied live: rows 13 and 14 flagged, prod now at revision `007`.
+**Deliberately marks rather than filters** — test accounts keep being polled and keep receiving
+alerts, since they are the only live proof the unattended poller works end-to-end (they are what
+produced ticket 5.2's two-customer evidence); a test in `tests/test_poll_customers.py` locks that in,
+because "flag exists, therefore filter on it" is the obvious wrong next edit. Backfill was done as a
+one-off ops UPDATE rather than inside the migration, since customer_ids are environment-specific.
+
+**Also reverted (Stakeholder decision, same session):** customer 13's `notification_email`, which
+5.3's interim fix had pointed at `pedram@reviewguide.eu`, is back to `pedram@defraged.com`. Both
+accounts had been routing alerts to the same inbox, which is the real reason only one address was
+receiving mail — the two accounts now test two different inboxes, as intended.
+
+**Known gap, logged not fixed:** all 20 day-one digest drafts (10 per customer) were composed while
+the send gates were closed and can never be delivered — the day-one job runs once at connect time,
+and its up-front already-alerted check would skip every one of those reviews on any re-run. Harmless
+here (both are test accounts, and the drafts are still visible in the panel), but the underlying
+class matters: **a customer who connects during a gate-closed window silently misses the day-one
+email**, and there is no retry or backfill path for an alert stuck unsent. Left as a product decision
+for the PM rather than fixed unprompted.
+
 ### Sprint 5 open questions for Stakeholder
 - Which real restaurant to connect for the milestone test (high review volume recommended)
 

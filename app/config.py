@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # posture as admin_api_key, but this one is presented by EventBridge Scheduler's API
     # destination rather than the Next.js dashboard's server.
     job_api_key: str = ""
+    # Ticket 6.4 amendment (Stakeholder + PM, 2026-08-14): where app/jobs/poll_customers.py's
+    # ops-health-notification email goes. Not a secret (a plain inbox address), same posture as
+    # reply_address and app_origin — a plain App Runner env var, not a Secrets Manager field.
+    # Empty means the feature is quietly off, same "unset = unavailable, not a crash" posture as
+    # postmark_token/stripe_secret_key above.
+    ops_alert_email: str = ""
 
 
 def _load_settings() -> Settings:

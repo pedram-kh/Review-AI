@@ -30,6 +30,13 @@ Ticket 6.4 (2026-08-13) reshaped three things about that last step, all in respo
 Every run also records itself in `poll_runs` (see app/models.py's PollRun and migration 010), so
 "what did the 14:00 tick actually do" is a question the admin UI can answer without CloudWatch.
 
+Ticket 6.4 amendment (Stakeholder + PM, 2026-08-14): a run that needed a human's attention now
+says so without one — see _maybe_send_ops_notification. At most one plain-text email per run,
+to OPS_ALERT_EMAIL, when the run's own counters show it: records_fetched over 70% of
+MAX_RECORDS_TOTAL (an early warning for the >20-customers abort above, before it happens),
+deferred > 0, skipped > 0, or aborted. A healthy run — the overwhelming majority — sends nothing;
+multiple conditions on the same run still send only one email, reasons bundled into its subject.
+
 LOGIC.md §8a caps, all enforced before the spend they guard:
   - <=25 review records/customer considered for idempotency-checking
     (MAX_REVIEW_RECORDS_PER_CUSTOMER, the top of FETCH_LADDER)
@@ -89,6 +96,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import SessionLocal
 from app.jobs.fetch_reviews import upsert_reviews
 from app.logic_rules import detect_health_keyword
@@ -136,6 +144,12 @@ MAX_REVIEW_RECORDS_PER_CUSTOMER = FETCH_LADDER[-1]
 MAX_RECORDS_TOTAL = 500
 MAX_CLAUDE_CALLS_TOTAL = 100
 MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY = 10
+
+# Ticket 6.4 amendment (Stakeholder + PM, 2026-08-14). A fraction of MAX_RECORDS_TOTAL, not of the
+# abort check's own worst-case estimate — this is an early-warning for a run that fetched a lot
+# and DID NOT abort, distinct from the aborted=true trigger below, which fires whether or not
+# records were the reason.
+OPS_RECORDS_WARNING_FRACTION = 0.70
 
 # Ticket 6.4 part C. Alerting no longer looks at "the newest N rows in the DB" — it looks at every
 # un-alerted review inside these bounds, so a review can never age out of consideration unnoticed
@@ -716,6 +730,69 @@ def _finish_run_row(session: Session, run_id: str, result: dict, error_note: str
     session.commit()
 
 
+def _ops_notification_reasons(result: dict) -> list[str]:
+    """Which of the four run-health conditions (ticket 6.4 amendment) this run tripped, if any —
+    in the ticket's own order, which becomes both the subject line and the decision of whether to
+    send anything at all. Deliberately checked against `result`, the same dict `_finish_run_row`
+    just persisted, rather than re-deriving anything — one source of truth for what a run did."""
+    reasons: list[str] = []
+    records_threshold = OPS_RECORDS_WARNING_FRACTION * MAX_RECORDS_TOTAL
+    if result["reviews_fetched"] > records_threshold:
+        reasons.append(
+            f"records_fetched {result['reviews_fetched']}/{MAX_RECORDS_TOTAL} "
+            f"(>{OPS_RECORDS_WARNING_FRACTION:.0%})"
+        )
+    if result["deferred"] > 0:
+        reasons.append(f"deferred={result['deferred']}")
+    if result["daily_cap_skipped_customers"] > 0:
+        reasons.append(f"skipped={result['daily_cap_skipped_customers']}")
+    if result["aborted"]:
+        reasons.append("aborted")
+    return reasons
+
+
+def _maybe_send_ops_notification(
+    run_id: str, trigger_source: str, result: dict, on_progress
+) -> None:
+    """Ticket 6.4 amendment (Stakeholder + PM, 2026-08-14): one ops email per run, only when the
+    run's own counters say it needed one. Silent while OPS_ALERT_EMAIL is unset — same "unset =
+    quietly unavailable" posture as every other env-gated send in this codebase — and silent for
+    a healthy run even when it's set: an inbox that gets one email per run regardless of content
+    is exactly the failure mode this ticket exists to avoid, just aimed at ops instead of a
+    customer.
+
+    Best-effort: a Postmark failure here is logged, not raised — the run itself already finished
+    and its own poll_runs row is already written; a notification about the run must never be able
+    to make the run's own result look like a failure.
+    """
+    if not settings.ops_alert_email:
+        return
+    reasons = _ops_notification_reasons(result)
+    if not reasons:
+        return
+
+    subject = f"[ReviewGuide ops] run {run_id}: {'; '.join(reasons)}"
+    body = (
+        f"Run {run_id} ({trigger_source}) finished with:\n\n"
+        f"  customers_polled: {result['customers_polled']}\n"
+        f"  records_fetched:  {result['reviews_fetched']}\n"
+        f"  new_alerts:       {result['new_alerts']}\n"
+        f"  emails_sent:      {result['emails_sent']}\n"
+        f"  backfilled:       {result['backfilled']}\n"
+        f"  skipped:          {result['daily_cap_skipped_customers']}\n"
+        f"  deferred:         {result['deferred']}\n"
+        f"  aborted:          {result['aborted']}\n"
+    )
+    if result["abort_reason"]:
+        body += f"  abort_reason:     {result['abort_reason']}\n"
+    body += f"\n{settings.app_origin}/admin/runs/{run_id}\n"
+
+    try:
+        send_email(settings.ops_alert_email, subject, body)
+    except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
+        on_progress(f"Ops notification for run {run_id} failed to send: {exc}")
+
+
 def run_poll_customers(
     session: Session,
     now: datetime | None = None,
@@ -744,6 +821,7 @@ def run_poll_customers(
         raise
     finally:
         _finish_run_row(session, run_id, result, error_note or result["skipped_reason"])
+        _maybe_send_ops_notification(run_id, trigger_source, result, on_progress)
 
 
 def _execute_poll(

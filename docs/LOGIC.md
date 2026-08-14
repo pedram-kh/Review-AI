@@ -144,7 +144,15 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
   finish, trigger source, and counters for customers polled, records fetched, drafts created,
   emails sent, backfilled, capped customers, and deferred drafts — and every alert carries the
   `run_id` that produced it. A run that aborts at a cap records why; a run that dies leaves a row
-  with no finish time. Visible read-only at `/admin/runs`.
+  with no finish time. Visible read-only at `/admin/runs`, alert history grouped under run headers
+  (collapsible: newest group open, older ones collapsed) on both `/admin/runs/[id]` and
+  `/admin/customers/[id]`.
+- **Ops notifications (ticket 6.4 amendment, 2026-08-14).** At run completion, ONE plain-text email
+  to `OPS_ALERT_EMAIL` if ANY of: records fetched >70% of the ≤500 total-records cap (early warning
+  ahead of the abort above), deferred drafts >0, capped customers >0, or the run aborted. Multiple
+  reasons bundle into that one email, never several; a healthy run — the overwhelming majority —
+  sends nothing. `OPS_ALERT_EMAIL` unset means the feature is quietly off, same posture as every
+  other env-gated send in this codebase.
 - **Star-only / `<20`-char reviews (prompt KROK 0a, v1.4+):** 25–50 words, warm and generic; brief
   regret only when rating ≤3; never invent dishes, service details, visit course, or name the
   address/location. Language: review text gives no signal, so the response defaults to Polish — the
@@ -195,6 +203,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-14 | §8a ticket 6.4 amendment: ops notifications (one bundled email to `OPS_ALERT_EMAIL` on records >70% of cap, deferred>0, skipped>0, or aborted; silent on a healthy run) + `/admin/runs`'s and `/admin/customers/[id]`'s run-header groups made collapsible (newest open, older collapsed) — pure presentation, no data change | PM + Stakeholder |
 | 2026-08-13 | §8a polling overhaul (ticket 6.4): 2-base adaptive fetch ladder (2→10→25, per-customer records cap 10→25), one batched digest per run per customer with ≤3★ urgent breakout, daily cap redefined as emails-delivered and demoted to a pure runaway guard, un-alerted selection unwindowed within ≤60d/`connected_at` bounds, run observability (`poll_runs` + `alerts.run_id` + `/admin/runs`). Prompted by the 2026-08-11 ten-emails-in-one-minute incident. Discloses that the ≤500 records cap now aborts every run above 20 customers | PM + Stakeholder |
 | 2026-08-09 | §8a: star-only / <20-char review rules promoted into LOGIC (KROK 0a — 25–50 words, regret only at ≤3, no invented specifics, Polish default, city from `places.city`). Documents prompt v1.4/v1.4.1 behavior that ticket 5.8 already shipped and tests already pin; no code change, ticket 6.2 | PM (text authored verbatim) |
 | 2026-08-09 | §8a day-one bullet: connect is asynchronous (202 + background job + persisted run state + per-customer run-lock) — forced by a live gateway-timeout failure on a 58s synchronous connect, ticket 6.1 | Stakeholder (pending PM review) |

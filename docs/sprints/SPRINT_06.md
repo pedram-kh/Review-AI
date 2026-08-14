@@ -202,12 +202,47 @@ match what Google actually shows). Noted as a Sprint 6 candidate.
 **Done when:** backend + frontend suites green, deployed, and the next scheduled tick is confirmed
 to have written its own `poll_runs` row and to render at `/admin/runs`.
 
+---
+
+**Amendment, Stakeholder + PM, 2026-08-14** (same ticket, second deploy — logged here rather than as
+a new ticket since both items are refinements of D's run-observability UI, not new scope):
+
+**F. Collapsible groups.** The run-header/date-fallback groups on `/admin/customers/[id]` and the
+per-customer breakdown on `/admin/runs/[id]` are now expandable drawers — a header (label + draft
+count + urgency-count summary, e.g. "13 Aug 2026 · 10 drafts · 2 PILNE") toggles its body on click,
+chevron indicator, smooth `max-height` transition. Newest group starts open, older ones start
+collapsed. Pure presentation — no data or API change. (Ships as `app/admin/Accordion.tsx`, a shared
+client component; the CSS-grid `0fr`/`1fr` collapse trick was tried first and rejected — in a
+container with no explicit height, a lone flexible row track sizes to its content's max-content
+height for the *container's own* auto-height computation, so it never actually reached zero.)
+
+**G. Ops notifications.** New env var `OPS_ALERT_EMAIL` (App Runner service variable, not a
+secret). At run completion, if ANY of: records fetched >70% of the ≤500 total-records cap,
+deferred drafts > 0, capped customers > 0, or the run aborted — send ONE plain-text email via
+Postmark to `OPS_ALERT_EMAIL`: subject `[ReviewGuide ops] run <id>: <reason(s)>` (reasons bundled,
+never more than one email), body = the run's own counters + a link to `/admin/runs/<id>`. A healthy
+run — the overwhelming majority — sends nothing. Implemented in
+`app/jobs/poll_customers.py::_maybe_send_ops_notification`, called from the same `finally` block
+that writes the `poll_runs` row, so it also fires (or stays silent, per the same rules) on an
+aborted run.
+
+**G's tests:** each of the four trigger conditions fires the email independently; a healthy run
+sends nothing even with `OPS_ALERT_EMAIL` set; an aborted run always mails exactly one email; two
+simultaneous conditions (deferred + capped, from the same daily-cap event) bundle into that one
+email rather than two.
+
+**LOGIC.md §8a** gains an "Ops notifications" bullet (trigger conditions, single-email rule,
+recipient env var) with a "PM + Stakeholder 2026-08-14" changelog row. `.env.example` and the
+README's App Runner env-var list both gain `OPS_ALERT_EMAIL`.
+
 **Status, 2026-08-14:** suites green, migration 010 applied to prod, both repos deployed. The
 run-recording path is confirmed in production — run `bfc598da…` exists with `finished_at` set and
 is served by `/api/admin/runs` — but it is an **out-of-window run**, fired by hand at 03:00 Warsaw
-so that it took the branch that returns before any Outscraper or Claude call. **The last acceptance
+so that it took the branch that returns before any Outscraper or Claude call. Items F and G above
+are built and tested on top of that same base, ready to deploy together. **The last acceptance
 condition is therefore still open**: the 08:00 Warsaw tick is the first real scheduled run on this
-build, and it is the one that will exercise batching, the ladder and the counters against live
-data. Its row is worth reading before this ticket is called done.
+build, and is expected to confirm three things at once — a real-counter `poll_runs` row, the first
+run-headed (not date-fallback) group on a customer page, and — if any of G's four conditions fire —
+the first ops email. Its row is worth reading before this ticket is called done.
 
 **Full evidence:** see the 6.4 row in `docs/PROGRESS.md`'s current-sprint table.

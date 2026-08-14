@@ -104,8 +104,9 @@ regression — every other test uses in-memory SQLite (`tests/conftest.py`) and 
 
 **Current setup (Sprint 0, ticket 0.5):** deployed via GitHub connection (`reviewpilot-github`),
 service `reviewpilot-backend` in `eu-west-1`, smallest instance size (0.25 vCPU / 0.5 GB).
-`DATABASE_URL`, `OUTSCRAPER_API_KEY`, `ANTHROPIC_API_KEY`, `REPLY_ADDRESS`, `ADMIN_API_KEY` and
-`APP_ORIGIN` are set directly as App Runner **service environment variables** (via `RuntimeEnvironmentVariables` in `create-service`/
+`DATABASE_URL`, `OUTSCRAPER_API_KEY`, `ANTHROPIC_API_KEY`, `REPLY_ADDRESS`, `ADMIN_API_KEY`,
+`APP_ORIGIN` and `OPS_ALERT_EMAIL` (ticket 6.4 amendment, 2026-08-14 — the poller's run-health
+notification recipient) are set directly as App Runner **service environment variables** (via `RuntimeEnvironmentVariables` in `create-service`/
 `update-service`, `ConfigurationSource: API`) — not via Secrets Manager, and not read from
 `apprunner.yaml`. This was an explicit scope amendment (Stakeholder + PM, ticket 0.5): Secrets
 Manager + an App Runner instance role are deferred to **Sprint 4 hardening**, alongside moving
@@ -114,8 +115,9 @@ RDS to a private VPC connector + NAT (see `docs/PROGRESS.md` and `docs/ROADMAP.m
 `app/config.py` already supports the future switch: set the `AWS_SECRETS_NAME` environment
 variable on the service to the name of a Secrets Manager secret containing a JSON object
 `{"DATABASE_URL": "...", "OUTSCRAPER_API_KEY": "...", "ANTHROPIC_API_KEY": "..."}`, and it will be
-read instead of `.env`/plain env vars. `REPLY_ADDRESS` and `APP_ORIGIN` stay plain environment
-variables in both modes — neither is a secret (a public sender address and a CORS origin). When
+read instead of `.env`/plain env vars. `REPLY_ADDRESS`, `APP_ORIGIN` and `OPS_ALERT_EMAIL` stay
+plain environment variables in both modes — none of the three is a secret (a public sender
+address, a CORS origin, and an internal ops inbox). When
 that switch happens, the App Runner instance role will need an IAM policy granting
 `secretsmanager:GetSecretValue` scoped to that one secret's ARN — and `ADMIN_API_KEY` should move
 into the secret's JSON alongside the other three at that point, since unlike `REPLY_ADDRESS` it

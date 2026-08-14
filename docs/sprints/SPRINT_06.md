@@ -246,3 +246,23 @@ run-headed (not date-fallback) group on a customer page, and — if any of G's f
 the first ops email. Its row is worth reading before this ticket is called done.
 
 **Full evidence:** see the 6.4 row in `docs/PROGRESS.md`'s current-sprint table.
+
+---
+
+## 6.5 — Landing redesign (Stakeholder-provided reference)
+
+**Origin:** Stakeholder-provided static mockup, placed at
+`reviewguide-marketing/design-reference/index.html` — a self-contained HTML file (inline CSS/JS,
+Plus Jakarta Sans, sections: nav, hero with floating review→reply cards + ping badge, "jak" 3
+steps, "przyklady" 2 example cards, "cennik", FAQ, final CTA, footer). Work happens entirely in
+`reviewguide-marketing`; this repo's `docs/` only logs the ticket.
+
+**Scope, as specified:** port the reference into the existing Next.js architecture pixel-faithfully
+(page components, global stylesheet, `next/font` for Plus Jakarta Sans, an `IntersectionObserver`
+client component for reveal-on-scroll — not the raw file served as-is); wire the reference's
+href-less CTAs to `NEXT_PUBLIC_APP_URL` + `/signup` or `/login` and to section anchors; verify
+content guards (129 zł, card-upfront FAQ wording verbatim, zero "bez karty", zero "w ciągu
+godziny"); preserve OG tags/favicon and a real first `<h1>`; commit the reference as the design
+source of truth; screenshot-verify against the reference at 390/820/1440px; deploy and live-verify.
+
+**Full evidence:** see the 6.5 row in `docs/PROGRESS.md`'s current-sprint table.

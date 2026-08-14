@@ -266,3 +266,35 @@ godziny"); preserve OG tags/favicon and a real first `<h1>`; commit the referenc
 source of truth; screenshot-verify against the reference at 390/820/1440px; deploy and live-verify.
 
 **Full evidence:** see the 6.5 row in `docs/PROGRESS.md`'s current-sprint table.
+
+**Status: ✅ ACCEPTED (PM, 2026-08-14).** Follow-up below.
+
+---
+
+## 6.5a — Two content corrections from 6.5's acceptance
+
+**Origin:** PM's 6.5 acceptance message, 2026-08-14 — accepted the redesign outright and opened
+this as a small, deliberate follow-up on the two items 6.5's own evidence had flagged as disclosed
+judgment calls/non-fixes. Explicitly scoped as superseding pixel-fidelity on these two points only;
+everything else 6.5 shipped stays as-is.
+
+**Scope, as specified:**
+1. **Example-card star badges** (`components/demo-section.tsx`): render the actual rating of each
+   example review — both are 2-star complaints, so `★★☆☆☆` (filled/empty stars accordingly) — not
+   the reference's fixed `★★★★★`. Stakeholder+PM-sanctioned divergence from
+   `design-reference/index.html`; must be noted (README or comment) so a future pixel-diff against
+   the reference doesn't revert it.
+2. **Regenerate `og-image.png`** to match the new light cream/gold theme: logo/wordmark + tagline
+   on the new palette, still 1200×630.
+
+Then: deploy, verify live (curl the OG tag + a rendered check of the example cards), report, and
+close the ticket.
+
+**Full evidence:** see the 6.5a row in `docs/PROGRESS.md`'s current-sprint table.
+
+**Status: ✅ ACCEPTED** — closure pre-authorized in the PM's own opening instruction for this
+ticket, conditioned on deploy + live verification succeeding (both did). One item flagged for
+PM attention regardless: this round's rendered-output check substituted a `next build` + `serve`
++ grep pass for the Playwright screenshot step 6.5's own evidence used, because installing
+Playwright this session was blocked by an autonomous-mutation safety review rather than a
+deliberate scope call.

@@ -279,11 +279,10 @@ class DigestDraftItem:
     is_urgent: bool
 
 
-def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
-    """(subject, text_body, html_body) for the day-one welcome digest — up to 10 drafts in one
-    email (SPRINT_05.md ticket 5.4)."""
-    subject = WELCOME_DIGEST_SUBJECT
-
+def _render_draft_blocks(items: list[DigestDraftItem]) -> tuple[list[str], list[str]]:
+    """The per-draft (text, html) blocks shared by the welcome digest and ticket 6.4's batched
+    poll digest. Extracted rather than duplicated so the two digests can never drift into looking
+    like two different products; the only thing that differs between them is the wrapping copy."""
     text_blocks = []
     html_blocks = []
     for item in items:
@@ -309,6 +308,14 @@ def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
             + _html_copy_block(item.response_text, background="#fff8ec", border="#e0b869")
             + "</div>"
         )
+    return text_blocks, html_blocks
+
+
+def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
+    """(subject, text_body, html_body) for the day-one welcome digest — up to 10 drafts in one
+    email (SPRINT_05.md ticket 5.4)."""
+    subject = WELCOME_DIGEST_SUBJECT
+    text_blocks, html_blocks = _render_draft_blocks(items)
 
     text_body = (
         "Cześć,\n\n"
@@ -339,6 +346,58 @@ def render_welcome_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
 # poll run isn't currently reaching that code via the unattended scheduler at all. Manual/job-key
 # calls to POST /api/jobs/poll-customers already do send for real with this flipped.
 ALERT_EMAIL_APPROVED_ON: str | None = "2026-08-08"
+
+
+def _pluralize_opinie(count: int) -> str:
+    """Polish plural for "opinia" — 1 opinia, 2-4 opinie, 5+ opinii, with the 12-14 exception.
+
+    Worth the eight lines: the alternative ("2 opinii") is the kind of thing a Polish restaurant
+    owner notices immediately in a subject line, and this product's whole voice is "written by
+    someone who speaks your language", not a translated template.
+    """
+    if count == 1:
+        return "opinia"
+    last_two = count % 100
+    if 12 <= last_two <= 14:
+        return "opinii"
+    return "opinie" if 2 <= count % 10 <= 4 else "opinii"
+
+
+def render_batch_alert_digest(items: list[DigestDraftItem]) -> tuple[str, str, str]:
+    """(subject, text_body, html_body) for ticket 6.4's batched poll digest — every non-urgent
+    draft found in one poll run, in one email.
+
+    Replaces the previous one-email-per-review behavior for non-urgent reviews, which is what
+    produced the 2026-08-11 incident where a single customer received ten separate emails inside
+    one minute. Urgent (<=3*) reviews deliberately do NOT come here: they still break out as
+    individual `render_alert_email` sends, because the point of an urgent alert is that it is
+    hard to miss, and burying it among five thank-you drafts defeats that.
+
+    Distinct from the welcome digest only in its wrapping copy — the draft blocks themselves are
+    the same renderer. The welcome digest greets a brand-new customer ("przygotowaliśmy..."); this
+    one reports what arrived since the last run, so it leads with the count and never implies
+    onboarding.
+    """
+    count = len(items)
+    subject = f"{count} {_pluralize_opinie(count)} — gotowe odpowiedzi"
+    text_blocks, html_blocks = _render_draft_blocks(items)
+
+    intro_text = (
+        f"od ostatniego sprawdzenia pojawiło się {count} "
+        f"{_pluralize_opinie(count)} — odpowiedzi są już gotowe:"
+    )
+    text_body = (
+        "Cześć,\n\n"
+        f"{intro_text}\n\n" + "\n\n---\n\n".join(text_blocks) + "\n\n"
+        "Skopiuj wybraną odpowiedź i wklej ją w Profilu Firmy Google.\n"
+        f"Panel: {_app_link()}"
+    )
+    html_body = _html_wrapper(
+        "<p>Cześć,</p>"
+        f"<p>{intro_text}</p>" + "".join(html_blocks) + "<p>Skopiuj wybraną odpowiedź i wklej ją w "
+        "Profilu Firmy Google.</p>" + _html_app_link_button()
+    )
+    return subject, text_body, html_body
 
 
 def render_alert_email(

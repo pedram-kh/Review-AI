@@ -62,6 +62,10 @@ class CustomerAlertHistoryItem(BaseModel):
     postmark_message_id: str | None
     generation_stop_reason: str | None
     created_at: datetime
+    # Ticket 6.4. NULL for every alert written before migration 010, and permanently NULL for
+    # day-one welcome digests (not produced by a poll run). The UI groups by this and falls back
+    # to created_at's date when it is missing, so neither case leaves a row unaccounted for.
+    run_id: str | None
 
 
 class DeliveryStatusItem(BaseModel):
@@ -162,6 +166,7 @@ def get_customer_detail(
             postmark_message_id=alert.postmark_message_id,
             generation_stop_reason=alert.generation_stop_reason,
             created_at=alert.created_at,
+            run_id=alert.run_id,
         )
         for alert, review in alert_rows
     ]

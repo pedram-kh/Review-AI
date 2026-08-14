@@ -91,7 +91,7 @@ def test_double_fire_at_the_202_layer_yields_one_effective_run(db_session) -> No
     call_count = 0
     call_count_lock = threading.Lock()
 
-    def _slow_run(session, on_progress=lambda msg: None):
+    def _slow_run(session, on_progress=lambda msg: None, run_id=None, trigger_source="scheduler"):
         nonlocal call_count
         with call_count_lock:
             call_count += 1

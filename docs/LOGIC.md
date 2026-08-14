@@ -117,9 +117,34 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
     app's own `is_within_poll_window()` re-checks real `Europe/Warsaw` time on every invocation, so
     a mistimed edge tick near a DST transition is skipped cleanly (no wrong-hour spend) rather than
     executed at the wrong local hour — accepted trade-off, Stakeholder + PM 2026-08-08.
+  - **Adaptive fetch ladder (ticket 6.4, 2026-08-13).** A run asks Outscraper for the **2** newest
+    reviews per customer. If every review in that batch is one we have never seen, the batch was
+    too small to have reached the boundary between new and known, so the run asks again for **10**,
+    then **25**, stopping as soon as a batch contains a review we already had (or returns fewer
+    records than it asked for, which means that is the whole history). Worst case 2+10+25 = 37
+    records for a customer whose restaurant genuinely received 25+ reviews since the last poll —
+    the case the previous fixed limit of 5 silently truncated.
 - **Alert scope:** EVERY new review gets a response draft. Urgency flag: rating ≤3 → "PILNE"
   styling + subject prefix. Positive reviews (≥4) get a thank-you variant draft (§7 rules apply;
   structure swaps apology→thanks; 40–90 words).
+  - **Un-alerted selection is unwindowed (ticket 6.4).** Alerting considers EVERY un-alerted review
+    for a customer within the bounds below — not the newest N rows in the database. The old row
+    limit could strand a review permanently: once a busy week pushed it past the window before
+    anyone drafted for it, the window only ever moved further away from it.
+    - Bounds: review is ≤60 days old AND dated at or after the customer's `connected_at`. Reviews
+      predating a customer's signup are the day-one digest's job, and it already ran.
+- **One email per run per customer, plus urgent breakouts (ticket 6.4).** All of a run's
+  **non-urgent** drafts for one customer leave as a **single digest email**. **Urgent (≤3★)**
+  reviews still break out as individual, immediate emails — an urgent alert buried among
+  thank-you notes is not an alert. Drafts a run could not send (cap, closed gate, Postmark
+  failure) stay unsent and are retried by the next run's sweep, batched the same way, so a
+  deferral never becomes tomorrow's flood. Replaces one-email-per-review, which on 2026-08-11
+  sent one customer ten separate emails inside one minute.
+- **Run observability (ticket 6.4).** Every poll run records itself in `poll_runs` — start and
+  finish, trigger source, and counters for customers polled, records fetched, drafts created,
+  emails sent, backfilled, capped customers, and deferred drafts — and every alert carries the
+  `run_id` that produced it. A run that aborts at a cap records why; a run that dies leaves a row
+  with no finish time. Visible read-only at `/admin/runs`.
 - **Star-only / `<20`-char reviews (prompt KROK 0a, v1.4+):** 25–50 words, warm and generic; brief
   regret only when rating ≤3; never invent dishes, service details, visit course, or name the
   address/location. Language: review text gives no signal, so the response defaults to Polish — the
@@ -142,8 +167,19 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
     reads as `stale` after 10 minutes so nothing waits on it forever. One customer's day-one may
     never run twice concurrently — the per-customer run-lock protects against paying Claude twice
     for the same review — but two different customers connecting at once must both proceed.
-- **Caps:** per poll-run: ≤10 review records/customer, ≤500 records total, ≤100 Claude calls;
-  abort over cap. Per-customer alert emails: ≤10/day (anti-runaway).
+- **Caps:** per poll-run: ≤25 review records/customer (the top of the fetch ladder), ≤500 records
+  total, ≤100 Claude calls; abort over cap. Per-customer alert **emails**: ≤10/day (anti-runaway).
+  - **The daily cap counts emails delivered, not drafts written (ticket 6.4).** Under
+    one-email-per-review the two were the same number; batching separates them, and counting
+    drafts would let a single digest of eight consume eight of a customer's ten daily slots. At
+    the cap, drafts are still written and simply wait for a later run to mail them — the cap
+    protects an inbox, it does not cancel work. With batching in place, normal operation never
+    approaches this number; it now guards only against a genuine runaway.
+  - **Known limit, flagged at 6.4 delivery:** the ≤500 total-records cap is checked as a worst-case
+    estimate of `customers × 25`, so **every run aborts entirely once there are more than 20
+    eligible customers** (it was 50 when the per-customer figure was 10). At today's customer count
+    this is theoretical; it needs revisiting — raise the 500, or estimate the ladder's base and
+    enforce the cap during fetching — before customer 20.
 - **Health-flag rule carries over:** flagged drafts marked "sprawdź przed publikacją" in the
   alert email, never auto-posted anywhere (nothing auto-posts in v1 anyway).
 
@@ -159,6 +195,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-13 | §8a polling overhaul (ticket 6.4): 2-base adaptive fetch ladder (2→10→25, per-customer records cap 10→25), one batched digest per run per customer with ≤3★ urgent breakout, daily cap redefined as emails-delivered and demoted to a pure runaway guard, un-alerted selection unwindowed within ≤60d/`connected_at` bounds, run observability (`poll_runs` + `alerts.run_id` + `/admin/runs`). Prompted by the 2026-08-11 ten-emails-in-one-minute incident. Discloses that the ≤500 records cap now aborts every run above 20 customers | PM + Stakeholder |
 | 2026-08-09 | §8a: star-only / <20-char review rules promoted into LOGIC (KROK 0a — 25–50 words, regret only at ≤3, no invented specifics, Polish default, city from `places.city`). Documents prompt v1.4/v1.4.1 behavior that ticket 5.8 already shipped and tests already pin; no code change, ticket 6.2 | PM (text authored verbatim) |
 | 2026-08-09 | §8a day-one bullet: connect is asynchronous (202 + background job + persisted run state + per-customer run-lock) — forced by a live gateway-timeout failure on a 58s synchronous connect, ticket 6.1 | Stakeholder (pending PM review) |
 | 2026-08-08 | §8a polling bullet: infra note added — classic EventBridge Rule + UTC cron (Scheduler can't target API destinations), code-enforced Warsaw window covers DST edge ticks — accepted | Stakeholder + PM |

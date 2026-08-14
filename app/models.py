@@ -165,9 +165,59 @@ class Alert(Base):
     is_urgent: Mapped[bool] = mapped_column(Boolean)
     # values: digest (ticket 5.1 day-one) | alert (ticket 5.2 ongoing poll)
     kind: Mapped[str] = mapped_column(Text)
+    # Migration 010 (ticket 6.4): which poll run produced this row. Nullable in both directions —
+    # historical rows predate poll_runs entirely, and day-one digests are not produced by a poll
+    # run at all, so NULL is a permanent legitimate state here rather than a backfill gap. The
+    # admin UI groups by run and falls back to the row's own date when this is NULL.
+    run_id: Mapped[str | None] = mapped_column(Text, ForeignKey("poll_runs.run_id"))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     postmark_message_id: Mapped[str | None] = mapped_column(Text)
     # Migration 008: why this row's content is not simply what the generator first produced —
     # e.g. ticket 5.8's "regenerated v1.4" marks. Same role as leads.notes on the System A side.
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PollRun(Base):
+    """One row per execution of app/jobs/poll_customers.py (ticket 6.4, migration 010).
+
+    Written at the START of a run and updated at the end, rather than recorded once on success.
+    That ordering is the whole point: the failure this table exists to make visible is a run that
+    did not finish, and a row written only on completion can never describe one. A run that
+    crashes outright leaves `finished_at` NULL, which the admin UI reads as "did not complete" —
+    distinct from `aborted=True`, which is a run that deliberately stopped itself at a cap and
+    said why in `error_note`.
+
+    Before this table the only record of a poll run was CloudWatch log lines, which answer "what
+    happened in this run" only if you already know to go looking and still have the retention
+    window. `run_id` is deliberately the same uuid the jobs router already puts in every log line
+    (`poll-customers[<run_id>]`), so a row here and its logs are one grep apart.
+
+    The counters intentionally duplicate what could be derived by querying `alerts` — a run's
+    counters must stay true to what that run actually did even after its alerts are edited,
+    deleted, or re-sent by a later sweep.
+    """
+
+    __tablename__ = "poll_runs"
+
+    run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # NULL means the run never reported back — a crash or a process killed mid-run, not a clean
+    # "nothing to do" (which finishes normally with zeroed counters).
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # "scheduler" (EventBridge via POST /api/jobs/poll-customers) | "cli" (ops, __main__ below)
+    trigger_source: Mapped[str] = mapped_column(Text)
+    customers_polled: Mapped[int] = mapped_column(Integer, server_default="0")
+    records_fetched: Mapped[int] = mapped_column(Integer, server_default="0")
+    new_alerts: Mapped[int] = mapped_column(Integer, server_default="0")
+    emails_sent: Mapped[int] = mapped_column(Integer, server_default="0")
+    backfilled: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Customers that hit the per-customer daily email cap during this run.
+    skipped: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Drafts written but deliberately not emailed this run (daily cap) — they keep sent_at NULL,
+    # so ticket 5.7's sweep delivers them on a later run. Distinct from `skipped`, which counts
+    # customers; this counts drafts.
+    deferred: Mapped[int] = mapped_column(Integer, server_default="0")
+    aborted: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    # Why the run aborted, or the exception that killed it. NULL on a clean run.
+    error_note: Mapped[str | None] = mapped_column(Text)

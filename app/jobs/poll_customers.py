@@ -9,15 +9,30 @@ BEFORE spending, never after. That "check first" discipline is not a style prefe
 idempotency check that only ran at the DB-insert layer, spending real money on drafts a re-run was
 always going to discard. This module is built the corrected way from the start.
 
-For every trialing/active customer with a connected place: fetch the 5 newest reviews, upsert,
-find the ones not yet alerted for that customer, draft a response for each (rating-aware,
-app.prompts.render_for_customer), record one `alerts` row per draft (`kind='alert'`, distinct from
-ticket 5.1's `kind='digest'` — see app/models.py's Alert docstring for why both kinds share one
-table and one unique constraint), and send one alert email per newly-alerted review.
+For every trialing/active customer with a connected place: fetch the newest reviews (adaptively —
+see FETCH_LADDER), upsert, find the ones not yet alerted for that customer, draft a response for
+each (rating-aware, app.prompts.render_for_customer), record one `alerts` row per draft
+(`kind='alert'`, distinct from ticket 5.1's `kind='digest'` — see app/models.py's Alert docstring
+for why both kinds share one table and one unique constraint), and email them.
+
+Ticket 6.4 (2026-08-13) reshaped three things about that last step, all in response to the
+2026-08-11 incident in which one customer received ten separate emails inside one minute:
+
+  - Emails are BATCHED. Every non-urgent draft a run produces for one customer leaves as a single
+    digest email. Urgent (<=3*) reviews still break out as individual, immediate emails, because
+    an urgent alert that arrives buried among thank-you notes is not an alert.
+  - Fetching is ADAPTIVE (FETCH_LADDER). A run asks for the 2 newest reviews and climbs to 10 then
+    25 only while every review it sees is one it has never seen before.
+  - Alert selection is UNWINDOWED (_select_unalerted_reviews). Every un-alerted review inside the
+    60-day / connected_at bounds is considered, not the newest N rows in the DB — the old row
+    limit could permanently strand a review that a busy week pushed out of the window.
+
+Every run also records itself in `poll_runs` (see app/models.py's PollRun and migration 010), so
+"what did the 14:00 tick actually do" is a question the admin UI can answer without CloudWatch.
 
 LOGIC.md §8a caps, all enforced before the spend they guard:
-  - <=10 review records/customer considered for idempotency-checking
-    (MAX_REVIEW_RECORDS_PER_CUSTOMER)
+  - <=25 review records/customer considered for idempotency-checking
+    (MAX_REVIEW_RECORDS_PER_CUSTOMER, the top of FETCH_LADDER)
   - <=500 review records total per poll-run (MAX_RECORDS_TOTAL) — checked as a single upfront
     worst-case estimate (customers_considered * MAX_REVIEW_RECORDS_PER_CUSTOMER), the same
     "estimate the worst case, refuse before any call" contract app.services.cost_guard.enforce_caps
@@ -26,22 +41,30 @@ LOGIC.md §8a caps, all enforced before the spend they guard:
     per-run cutoff order to reason about or test.
   - <=100 Claude calls total per poll-run (MAX_CLAUDE_CALLS_TOTAL) — checked against the actual
     number of not-yet-alerted reviews found after fetching, before any Claude call is made.
-  - <=10 alert emails/customer/day (MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY) — an anti-runaway floor
-    distinct from the run-wide caps above: it protects one customer's inbox from a flood (e.g. a
-    scraping glitch that makes many old reviews look simultaneously "new") without stopping the
-    poll run for every other customer.
+  - <=10 alert EMAILS/customer/day (MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY) — an anti-runaway floor
+    distinct from the run-wide caps above: it protects one customer's inbox from a flood without
+    stopping the poll run for every other customer. Ticket 6.4 changed what it counts (delivered
+    emails, not drafts written — see _count_alerts_today_for_customer) and what happens at the
+    cap: drafts are still written, and simply wait for a later run to mail them, rather than being
+    skipped outright. Batching means normal operation never approaches this number.
 
 In-code time-window guard: LOGIC.md §8a says polling runs "08:00-23:00 Europe/Warsaw" — this is
 enforced here too, not trusted to EventBridge's own schedule, so a manual/misconfigured trigger
 outside the window is still a no-op.
 
-Known scaling note, disclosed rather than silently deferred: once customers_considered exceeds 50
-(50 * 10 = 500, the records cap), EVERY poll run aborts and does NOTHING for ANY customer until
-that count drops back down — this is the literal "abort over cap" behavior the ticket asks for,
-appropriate as a circuit breaker against a runaway bug at today's customer count, but it is not a
-graceful degradation strategy for a genuinely large customer base. Revisiting the cap (e.g.
-prioritizing/rotating customers instead of an all-or-nothing abort) is future scope, not ticket
-5.2's.
+Known scaling note, disclosed rather than silently deferred, and MADE MORE URGENT BY TICKET 6.4:
+once customers_considered exceeds 20, EVERY poll run aborts and does NOTHING for ANY customer
+until that count drops back down. The threshold used to be 50; raising the per-customer worst case
+from 10 records to 25 to match the fetch ladder divided it by 2.5, because the pre-flight estimate
+multiplies the ladder's TOP rung by every customer even though a typical run never leaves the
+bottom rung (2 records). At 4 customers this is theoretical. At 21 it is a total, silent outage of
+the product's core loop, and the failure mode gives no warning as it approaches.
+
+Deliberately left as-is here rather than fixed in passing: MAX_RECORDS_TOTAL is LOGIC.md §8a's
+number, and both plausible fixes (raise the 500, or estimate the ladder's base and enforce the cap
+incrementally during fetching) change a documented business rule or the "refuse before any call"
+contract this module is built on. Flagged to the PM at ticket 6.4 delivery as the next thing this
+job needs, ahead of customer 20.
 
 Ticket 5.7 (2026-08-09, Stakeholder finding): a customer who connects — or whose 2h alert fires —
 while 5.4's send gates are closed gets a real draft with no email, permanently, because both the
@@ -58,6 +81,7 @@ so it must never be blocked by a cap that exists to protect spend it doesn't cau
 import argparse
 import sys
 import threading
+import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -68,7 +92,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.jobs.fetch_reviews import upsert_reviews
 from app.logic_rules import detect_health_keyword
-from app.models import Alert, Customer, Place, Review
+from app.models import Alert, Customer, Place, PollRun, Review
 from app.prompts import LeadContext
 from app.services.claude_client import ClaudeClient
 from app.services.cost_guard import CostCapExceeded
@@ -79,6 +103,7 @@ from app.templates import (
     WELCOME_DIGEST_APPROVED_ON,
     DigestDraftItem,
     render_alert_email,
+    render_batch_alert_digest,
     render_welcome_digest,
 )
 
@@ -90,11 +115,36 @@ WARSAW_TZ = ZoneInfo("Europe/Warsaw")
 POLL_WINDOW_START_HOUR = 8
 POLL_WINDOW_END_HOUR = 23
 
-REVIEWS_PER_CUSTOMER = 5
-MAX_REVIEW_RECORDS_PER_CUSTOMER = 10
+# Ticket 6.4's adaptive fetch ladder. A run asks Outscraper for the 2 newest reviews first, not 5:
+# the overwhelmingly common outcome of a poll is "nothing new since two hours ago", and 2 records
+# is the cheapest question that can still distinguish "nothing new" from "something new" (1 record
+# cannot — a single unknown review tells you nothing about whether there are more behind it).
+#
+# When EVERY review in a batch is one we have never seen, the batch is by definition too small to
+# have reached the boundary between new and known, so the run asks again for a bigger slice. The
+# ladder terminates the moment a batch contains a review already in our DB, because everything
+# older than that is, by Outscraper's newest-first ordering, already known.
+#
+# Worst case a single customer costs 2 + 10 + 25 = 37 records in one run, which only happens for a
+# restaurant that genuinely received 25+ reviews since the last poll — exactly the case the old
+# fixed limit of 5 silently truncated, dropping reviews that were never alerted and never would be.
+FETCH_LADDER = (2, 10, 25)
+REVIEWS_PER_CUSTOMER = FETCH_LADDER[0]
+# Matches the top of the ladder: this is the worst-case per-customer record count the run-wide
+# MAX_RECORDS_TOTAL pre-flight estimate must budget for.
+MAX_REVIEW_RECORDS_PER_CUSTOMER = FETCH_LADDER[-1]
 MAX_RECORDS_TOTAL = 500
 MAX_CLAUDE_CALLS_TOTAL = 100
 MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY = 10
+
+# Ticket 6.4 part C. Alerting no longer looks at "the newest N rows in the DB" — it looks at every
+# un-alerted review inside these bounds, so a review can never age out of consideration unnoticed
+# just because a busier neighbour pushed it past a row limit. The bounds are what stop that from
+# meaning "every review we have ever stored":
+#   - MAX_REVIEW_AGE_DAYS mirrors day_one.py's identical constant (LOGIC.md §8a's "<=60 days old").
+#   - connected_at stops a customer being alerted about reviews that predate their signup; their
+#     one-time backfill of those is the day-one digest's job, and it already ran.
+MAX_REVIEW_AGE_DAYS = 60
 
 ELIGIBLE_STATUSES = ("trialing", "active")
 ALERT_KIND = "alert"
@@ -138,19 +188,38 @@ def _select_eligible_customers(session: Session) -> list[Customer]:
 def _count_alerts_today_for_customer(
     session: Session, customer_id: int, day_start: datetime, day_end: datetime
 ) -> int:
+    """Ticket 6.4: the daily cap now counts EMAILS ACTUALLY DELIVERED today, not alert rows created
+    today.
+
+    Under ticket 5.2 the two were the same number — one new review meant one alert row and one
+    email — so counting rows was a faithful proxy for "how much mail has this inbox had from us
+    today". Batching breaks that equivalence: a run that drafts eight non-urgent responses now
+    sends ONE email, and counting rows would have that single email consume eight of the ten
+    allowed, throttling a customer who received nothing of the sort. Counting distinct
+    `postmark_message_id`s measures the thing the cap is actually about.
+
+    Two deliberate exclusions:
+      - Rows with no message id (composed but never sent — gate closed, or a send failure) are not
+        emails and must not consume the cap; ticket 5.7's sweep still owes those a delivery.
+      - `kind='digest'` rows are the day-one welcome digest, which ticket 5.7 explicitly exempted
+        from this cap. Filtering on ALERT_KIND preserves that carve-out across runs, not merely
+        within one (pinned by
+        test_poll_customers.py::test_digest_backfill_does_not_consume_the_alert_daily_cap).
+    """
     return session.execute(
-        select(func.count())
-        .select_from(Alert)
-        .where(
+        select(func.count(func.distinct(Alert.postmark_message_id))).where(
             Alert.customer_id == customer_id,
-            Alert.created_at >= day_start,
-            Alert.created_at < day_end,
+            Alert.kind == ALERT_KIND,
+            Alert.postmark_message_id.isnot(None),
+            Alert.sent_at >= day_start,
+            Alert.sent_at < day_end,
         )
     ).scalar_one()
 
 
 def _empty_result() -> dict:
     return {
+        "run_id": None,
         "skipped_reason": None,
         "customers_considered": 0,
         "customers_polled": 0,
@@ -159,9 +228,21 @@ def _empty_result() -> dict:
         "emails_sent": 0,
         "backfilled": 0,
         "daily_cap_skipped_customers": 0,
+        # Ticket 6.4: drafts written this run that the daily cap held back from being emailed.
+        # They keep sent_at NULL, so the 5.7 sweep delivers them on a later run — "deferred", not
+        # "lost", and the counter says so rather than leaving it to be inferred.
+        "deferred": 0,
         "aborted": False,
         "abort_reason": None,
     }
+
+
+def _as_aware_utc(value: datetime | None) -> datetime | None:
+    """Same normalization day_one.py applies: SQLite (the test suite) hands back naive datetimes
+    for timezone-aware columns, Postgres hands back aware ones."""
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _get_or_init_daily_count(
@@ -179,6 +260,75 @@ def _get_or_init_daily_count(
             session, customer_id, day_start, day_end
         )
     return alerts_today_count[customer_id]
+
+
+def _at_daily_cap(
+    session: Session,
+    alerts_today_count: dict[int, int],
+    customer_id: int,
+    day_start: datetime,
+    day_end: datetime,
+    skipped_customers_for_daily_cap: set[int],
+    on_progress,
+) -> bool:
+    """The MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY check, asked once per prospective EMAIL.
+
+    Ticket 6.4 keeps this cap exactly as it was in intent — a runaway guard, not a rationing
+    policy — but batching changes what it actually guards. Before, ten new reviews meant ten
+    emails and the cap was the only thing standing between a customer and an inbox full of them
+    (which is what happened on 2026-08-11). Now ten non-urgent reviews are one email, so in normal
+    operation this cap is simply never approached; what remains for it to catch is a genuine
+    runaway — a scraping glitch producing urgent-rated reviews in a loop, say — which is the job
+    it was written for.
+    """
+    count = _get_or_init_daily_count(session, alerts_today_count, customer_id, day_start, day_end)
+    if count < MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY:
+        return False
+    if customer_id not in skipped_customers_for_daily_cap:
+        skipped_customers_for_daily_cap.add(customer_id)
+        on_progress(
+            f"Customer {customer_id}: daily email cap ({MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY}"
+            "/day) reached — remaining mail deferred to a later run."
+        )
+    return True
+
+
+def _send_and_stamp(
+    session: Session,
+    customer: Customer,
+    review_ids: list[str],
+    subject: str,
+    text_body: str,
+    html_body: str,
+) -> str | None:
+    """Sends one email and stamps every alert row it covers with the same message id. Returns the
+    message id, or None if the send failed (rows stay unsent for ticket 5.7's sweep to retry).
+
+    One message id shared across N rows is what makes a batched digest countable as a single email
+    by _count_alerts_today_for_customer — the cap and the batching agree on what "an email" is
+    because they read the same column.
+
+    `sent_at` is stamped at send time rather than reusing the run's start timestamp. The old
+    behavior wrote `now` from the top of the run, which on a long run produced alert rows whose
+    `sent_at` predated their own `created_at` — harmless until ticket 6.4 put both on screen next
+    to each other in the run detail view, where it reads as corruption.
+    """
+    message_id = send_email(
+        customer.notification_email or customer.email, subject, text_body, html_body
+    )
+    if not message_id:
+        return None
+    session.execute(
+        update(Alert)
+        .where(
+            Alert.customer_id == customer.customer_id,
+            Alert.review_id.in_(review_ids),
+            Alert.sent_at.is_(None),
+        )
+        .values(sent_at=datetime.now(UTC), postmark_message_id=message_id)
+    )
+    session.commit()
+    return message_id
 
 
 def _select_unsent_alerts(
@@ -236,19 +386,18 @@ def _sweep_unsent_alerts(
     alert_rows = [a for a in unsent if a.kind == ALERT_KIND]
     digest_rows = [a for a in unsent if a.kind == DIGEST_KIND]
 
-    # --- retry kind='alert' rows, one email each, oldest first -----------------------------
-    for alert in alert_rows:
+    # --- retry urgent kind='alert' rows, one email each, oldest first -----------------------
+    for alert in [a for a in alert_rows if a.is_urgent]:
         customer = customer_by_id[alert.customer_id]
-        count = _get_or_init_daily_count(
-            session, alerts_today_count, customer.customer_id, day_start, day_end
-        )
-        if count >= MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY:
-            skipped_customers_for_daily_cap.add(customer.customer_id)
-            on_progress(
-                f"Backfill: customer {customer.customer_id}'s daily alert cap "
-                f"({MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY}/day) reached — alert {alert.review_id} "
-                "stays unsent, retried next run."
-            )
+        if _at_daily_cap(
+            session,
+            alerts_today_count,
+            customer.customer_id,
+            day_start,
+            day_end,
+            skipped_customers_for_daily_cap,
+            on_progress,
+        ):
             continue
         if ALERT_EMAIL_APPROVED_ON is None:
             on_progress(
@@ -268,26 +417,86 @@ def _sweep_unsent_alerts(
             rating=review.rating,
             review_text=review.text or "",
             response_text=alert.response_text,
-            is_urgent=alert.is_urgent,
+            is_urgent=True,
             health_flagged=keyword is not None,
         )
-        message_id = send_email(
-            customer.notification_email or customer.email, subject, text_body, html_body
+        message_id = _send_and_stamp(
+            session, customer, [alert.review_id], subject, text_body, html_body
         )
         if not message_id:
             on_progress(f"Backfill: alert {alert.review_id} — send failed again, stays unsent.")
             continue
+        backfilled += 1
+        alerts_today_count[customer.customer_id] += 1
+        on_progress(f"Backfill: urgent alert {alert.review_id} — delivered.")
 
-        stamped = session.execute(
-            update(Alert)
-            .where(Alert.alert_id == alert.alert_id, Alert.sent_at.is_(None))
-            .values(sent_at=now, postmark_message_id=message_id)
+    # --- retry non-urgent kind='alert' rows, batched into one email per customer ------------
+    #
+    # Ticket 6.4: these are drafts a previous run wrote but could not send — a closed gate, a
+    # Postmark blip, or its own daily cap. Retrying them one email each is how the 2026-08-11
+    # ten-emails-at-08:00 incident actually happened: a day's deferred backlog draining
+    # individually the moment the cap reset. Batching the retry closes that path too, and keeps
+    # the promise batching makes to the customer — that a quiet overnight is one email, however
+    # many runs it took to draft it.
+    nonurgent_by_customer: dict[int, list[Alert]] = {}
+    for alert in [a for a in alert_rows if not a.is_urgent]:
+        nonurgent_by_customer.setdefault(alert.customer_id, []).append(alert)
+
+    for customer_id, rows in nonurgent_by_customer.items():
+        customer = customer_by_id[customer_id]
+        if ALERT_EMAIL_APPROVED_ON is None:
+            on_progress(
+                f"Backfill: ALERT_EMAIL_APPROVED_ON unset — customer {customer_id}'s {len(rows)} "
+                "stuck draft(s) stay unsent."
+            )
+            continue
+        if _at_daily_cap(
+            session,
+            alerts_today_count,
+            customer_id,
+            day_start,
+            day_end,
+            skipped_customers_for_daily_cap,
+            on_progress,
+        ):
+            continue
+
+        place = session.get(Place, customer.place_id) if customer.place_id else None
+        items: list[DigestDraftItem] = []
+        review_ids: list[str] = []
+        for row in rows:
+            review = session.get(Review, row.review_id)
+            if review is None:
+                continue
+            items.append(
+                DigestDraftItem(
+                    place_name=place.name if place else None,
+                    rating=review.rating,
+                    review_text=review.text or "",
+                    response_text=row.response_text,
+                    is_urgent=False,
+                )
+            )
+            review_ids.append(row.review_id)
+        if not items:
+            on_progress(f"Backfill: customer {customer_id} alert rows missing reviews — skipping.")
+            continue
+
+        subject, text_body, html_body = render_batch_alert_digest(items)
+        message_id = _send_and_stamp(
+            session, customer, review_ids, subject, text_body, html_body
         )
-        session.commit()
-        if stamped.rowcount:
-            backfilled += 1
-            alerts_today_count[customer.customer_id] = count + 1
-            on_progress(f"Backfill: alert {alert.review_id} — delivered.")
+        if not message_id:
+            on_progress(
+                f"Backfill: customer {customer_id}'s batched retry failed again, stays unsent."
+            )
+            continue
+        backfilled += len(review_ids)
+        alerts_today_count[customer_id] += 1
+        on_progress(
+            f"Backfill: customer {customer_id} — delivered {len(review_ids)} stuck draft(s) in "
+            "one email."
+        )
 
     # --- retry kind='digest' rows, grouped into one email per customer ---------------------
     digest_customer_ids = sorted({a.customer_id for a in digest_rows})
@@ -323,43 +532,226 @@ def _sweep_unsent_alerts(
             continue
 
         subject, text_body, html_body = render_welcome_digest(items)
-        message_id = send_email(
-            customer.notification_email or customer.email, subject, text_body, html_body
+        message_id = _send_and_stamp(
+            session, customer, review_ids, subject, text_body, html_body
         )
         if not message_id:
             on_progress(
                 f"Backfill: customer {customer_id}'s digest send failed again, stays unsent."
             )
             continue
-
-        stamped = session.execute(
-            update(Alert)
-            .where(
-                Alert.customer_id == customer_id,
-                Alert.review_id.in_(review_ids),
-                Alert.sent_at.is_(None),
-            )
-            .values(sent_at=now, postmark_message_id=message_id)
-        )
-        session.commit()
-        backfilled += stamped.rowcount
+        backfilled += len(review_ids)
         on_progress(
-            f"Backfill: customer {customer_id} — delivered {stamped.rowcount} stuck digest "
+            f"Backfill: customer {customer_id} — delivered {len(review_ids)} stuck digest "
             "draft(s) in one email."
         )
 
     return backfilled
 
 
+def _fetch_with_escalation(
+    session: Session, place: Place, now: datetime, on_progress
+) -> tuple[int, list[str]]:
+    """Ticket 6.4 part B. Fetches the newest reviews for one place, climbing FETCH_LADDER until a
+    batch contains a review we already had. Returns (records_fetched, polled_place_ids).
+
+    The termination condition is "this batch contained a review we knew BEFORE this run started",
+    not "this batch contained no new reviews". Outscraper returns newest-first, so one
+    already-known review in the batch proves we have reached the point where our stored history and
+    Google's overlap — everything below it is already ours. A batch of entirely-unknown reviews
+    proves the opposite: the boundary is further down than we asked for, and stopping there is
+    exactly how the old fixed limit lost reviews.
+
+    "Before this run" is the load-bearing part. Every rung re-asks from the newest review down, so
+    rung 2's response necessarily repeats everything rung 1 just inserted. Judging "known" against
+    the live table would therefore see rung 1's own inserts and stop immediately, every time,
+    making rung 3 unreachable — the ladder would look implemented and be inert. `inserted_this_run`
+    exists solely to subtract this run's own footprints before reading the tracks.
+
+    Each rung is a separate, separately-billed Outscraper call. That is the deliberate trade: pay
+    for a second and third call only on the rare runs where a restaurant genuinely received a burst
+    of reviews, in exchange for never truncating one.
+    """
+    records_fetched = 0
+    polled_place_ids: list[str] = []
+    inserted_this_run: set[str] = set()
+
+    for rung, limit in enumerate(FETCH_LADDER, start=1):
+        raw_places = OutscraperClient().fetch_reviews([place.place_id], reviews_per_place=limit)
+        batch_ids = {
+            review["review_id"]
+            for raw_place in raw_places
+            for review in (raw_place.get("reviews_data") or [])
+            if review.get("review_id")
+        }
+        if not batch_ids:
+            on_progress(f"Place {place.place_id}: rung {rung} returned no reviews — stopping.")
+            return records_fetched, polled_place_ids
+
+        # Asked BEFORE the upsert, or every id in the batch would trivially be "existing".
+        existing = set(
+            session.execute(select(Review.review_id).where(Review.review_id.in_(batch_ids)))
+            .scalars()
+            .all()
+        )
+        known_before_run = existing - inserted_this_run
+        inserted_this_run |= batch_ids - existing
+
+        inserted, updated, batch_place_ids = upsert_reviews(session, raw_places)
+        if batch_place_ids:
+            polled_place_ids = batch_place_ids
+        session.commit()
+        records_fetched += len(batch_ids)
+        on_progress(
+            f"Place {place.place_id}: ladder rung {rung} (limit {limit}) — {len(batch_ids)} "
+            f"record(s), {len(known_before_run)} already known before this run."
+        )
+        if known_before_run:
+            return records_fetched, polled_place_ids
+        if len(batch_ids) < limit:
+            # Asked for more than the place has: we are looking at its entire review history, so
+            # there is nothing below the batch for a bigger ask to reveal. Without this, a
+            # restaurant with three reviews total would climb the whole ladder on every first
+            # poll — all-new is indistinguishable from all-there-is by the known-review test alone.
+            on_progress(
+                f"Place {place.place_id}: {len(batch_ids)} record(s) for a limit of {limit} — "
+                "that is the whole history, stopping."
+            )
+            return records_fetched, polled_place_ids
+        if rung < len(FETCH_LADDER):
+            on_progress(
+                f"Place {place.place_id}: every record was new — escalating to "
+                f"{FETCH_LADDER[rung]}."
+            )
+    on_progress(
+        f"Place {place.place_id}: still all-new at the top of the ladder "
+        f"({FETCH_LADDER[-1]}) — stopping there; the remainder is picked up next run."
+    )
+    return records_fetched, polled_place_ids
+
+
+def _select_unalerted_reviews(
+    session: Session, customer: Customer, place: Place, now: datetime
+) -> list[Review]:
+    """Ticket 6.4 part C. Every un-alerted review for this customer's place inside the age and
+    signup bounds — no "newest N rows" limit.
+
+    The limit this replaces (`MAX_REVIEW_RECORDS_PER_CUSTOMER` used as a SELECT ... LIMIT) was a
+    silent data-loss bug, not merely a conservative cap: a review that fell outside the newest N
+    before it was ever alerted could never come back into consideration, because the window only
+    ever moves forward. Escalated fetches make that strictly worse — there is no point paying to
+    fetch 25 reviews and then only ever looking at 10 of them.
+
+    Reviews with no date are excluded rather than sorted last: both bounds below are date
+    comparisons, so an undated review cannot be shown to satisfy either. day_one.py already
+    excludes them on the same reasoning.
+    """
+    floor = now - timedelta(days=MAX_REVIEW_AGE_DAYS)
+    connected_at = _as_aware_utc(customer.connected_at)
+    if connected_at is not None and connected_at > floor:
+        floor = connected_at
+
+    reviews = list(
+        session.execute(
+            select(Review)
+            .where(
+                Review.place_id == place.place_id,
+                Review.review_date.isnot(None),
+                Review.review_date >= floor,
+            )
+            .order_by(Review.review_date.desc())
+        )
+        .scalars()
+        .all()
+    )
+    if not reviews:
+        return []
+
+    already_alerted = set(
+        session.execute(
+            select(Alert.review_id).where(
+                Alert.customer_id == customer.customer_id,
+                Alert.review_id.in_([r.review_id for r in reviews]),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [r for r in reviews if r.review_id not in already_alerted]
+
+
+def _start_run_row(session: Session, run_id: str, trigger_source: str, now: datetime) -> None:
+    """Ticket 6.4 part D. Written before the run does anything, so that a run which dies mid-flight
+    still leaves evidence it existed — `finished_at IS NULL` is the signal for exactly that, and it
+    is unreachable if the row is only inserted on the way out."""
+    session.add(PollRun(run_id=run_id, started_at=now, trigger_source=trigger_source))
+    session.commit()
+
+
+def _finish_run_row(session: Session, run_id: str, result: dict, error_note: str | None) -> None:
+    """Stamps the run's outcome. Called from a `finally`, so it also runs for the abort paths and
+    for an unhandled exception — a crashed run gets counters describing how far it got, not a
+    missing row.
+
+    Rolls back first: if the run died with a failed transaction pending, every write here would
+    fail too, and the row would be lost precisely in the case it matters most.
+    """
+    session.rollback()
+    session.execute(
+        update(PollRun)
+        .where(PollRun.run_id == run_id)
+        .values(
+            finished_at=datetime.now(UTC),
+            customers_polled=result["customers_polled"],
+            records_fetched=result["reviews_fetched"],
+            new_alerts=result["new_alerts"],
+            emails_sent=result["emails_sent"],
+            backfilled=result["backfilled"],
+            skipped=result["daily_cap_skipped_customers"],
+            deferred=result["deferred"],
+            aborted=bool(result["aborted"]),
+            error_note=error_note or result["abort_reason"],
+        )
+    )
+    session.commit()
+
+
 def run_poll_customers(
-    session: Session, now: datetime | None = None, on_progress=lambda msg: None
+    session: Session,
+    now: datetime | None = None,
+    on_progress=lambda msg: None,
+    run_id: str | None = None,
+    trigger_source: str = "cli",
 ) -> dict:
     """Core polling logic, reusable by both the CLI (main) and POST /api/jobs/poll-customers
     (app/routers/jobs.py). Always returns a result dict; check result["aborted"] for the
-    cap-exceeded case, result["skipped_reason"] for the outside-poll-window no-op."""
+    cap-exceeded case, result["skipped_reason"] for the outside-poll-window no-op.
+
+    `run_id` is supplied by the caller so that the DB row, the result dict and the caller's own log
+    lines all carry one identifier; generated here when absent (the CLI path).
+    """
     now = now or datetime.now(UTC)
     result = _empty_result()
+    run_id = run_id or uuid.uuid4().hex
+    result["run_id"] = run_id
 
+    _start_run_row(session, run_id, trigger_source, now)
+    error_note: str | None = None
+    try:
+        return _execute_poll(session, now, on_progress, result, run_id)
+    except Exception as exc:  # noqa: BLE001 — re-raised below; this only records the cause
+        error_note = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        _finish_run_row(session, run_id, result, error_note or result["skipped_reason"])
+
+
+def _execute_poll(
+    session: Session, now: datetime, on_progress, result: dict, run_id: str
+) -> dict:
+    """The run itself. Split out from run_poll_customers so that its many early `return result`
+    paths (outside the window, nothing eligible, each cap abort) all pass through one `finally`
+    that stamps the run row, rather than each having to remember to."""
     if not is_within_poll_window(now):
         result["skipped_reason"] = "outside_poll_window"
         on_progress(
@@ -413,7 +805,7 @@ def run_poll_customers(
         on_progress(result["abort_reason"])
         return result
 
-    # --- Phase 1: fetch the 5 newest reviews per customer's place --------------------------
+    # --- Phase 1: fetch newest reviews per place, climbing the ladder as needed -------------
     place_by_customer: dict[int, Place] = {}
     for customer in customers:
         place = session.get(Place, customer.place_id)
@@ -424,8 +816,8 @@ def run_poll_customers(
             )
             continue
         try:
-            raw_places = OutscraperClient().fetch_reviews(
-                [place.place_id], reviews_per_place=REVIEWS_PER_CUSTOMER
+            records_fetched, polled_place_ids = _fetch_with_escalation(
+                session, place, now, on_progress
             )
         except CostCapExceeded as exc:
             # Practically unreachable given the upfront records-total check above already
@@ -440,18 +832,17 @@ def run_poll_customers(
             on_progress(result["abort_reason"])
             return result
 
-        inserted, updated, polled_place_ids = upsert_reviews(session, raw_places)
         if polled_place_ids:
             session.execute(
                 update(Place).where(Place.place_id.in_(polled_place_ids)).values(last_polled_at=now)
             )
-        session.commit()
-        result["reviews_fetched"] += inserted + updated
+            session.commit()
+        result["reviews_fetched"] += records_fetched
         result["customers_polled"] += 1
         place_by_customer[customer.customer_id] = place
         on_progress(
-            f"Customer {customer.customer_id}: fetched {REVIEWS_PER_CUSTOMER} newest, "
-            f"{inserted} inserted / {updated} updated."
+            f"Customer {customer.customer_id}: {records_fetched} record(s) fetched across the "
+            "ladder."
         )
 
     # --- Phase 2: idempotency check + Claude-call cap BEFORE any Claude spend --------------
@@ -460,34 +851,8 @@ def run_poll_customers(
         place = place_by_customer.get(customer.customer_id)
         if place is None:
             continue
-        reviews = list(
-            session.execute(
-                select(Review)
-                .where(Review.place_id == place.place_id)
-                .order_by(Review.review_date.desc().nulls_last())
-                .limit(MAX_REVIEW_RECORDS_PER_CUSTOMER)
-            )
-            .scalars()
-            .all()
-        )
-        review_ids = [r.review_id for r in reviews]
-        already_alerted = (
-            set(
-                session.execute(
-                    select(Alert.review_id).where(
-                        Alert.customer_id == customer.customer_id,
-                        Alert.review_id.in_(review_ids),
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if review_ids
-            else set()
-        )
-        for review in reviews:
-            if review.review_id not in already_alerted:
-                pending.append((customer, place, review))
+        for review in _select_unalerted_reviews(session, customer, place, now):
+            pending.append((customer, place, review))
 
     if not pending:
         on_progress("No new reviews to draft across any polled customer — nothing further to do.")
@@ -502,105 +867,161 @@ def run_poll_customers(
         on_progress(result["abort_reason"])
         return result
 
-    # --- Phase 3: generate + record + email, honoring the per-customer daily cap -----------
+    # --- Phase 3: generate + record + email, batched per customer --------------------------
     # alerts_today_count / skipped_customers_for_daily_cap are the SAME dict/set the ticket 5.7
     # sweep above already used — a customer whose backlog just consumed 3 of today's 10 slots
     # must only have 7 left for genuinely new reviews, not a fresh 10.
+    #
+    # Ticket 6.4 part A: every non-urgent draft this run produces for one customer leaves as ONE
+    # email; urgent (<=3*) reviews still leave immediately, one email each. Drafting is therefore
+    # decoupled from sending — the loop below writes every draft first and only then decides how
+    # many envelopes they travel in.
     client = ClaudeClient()
-
+    pending_by_customer: dict[int, list[tuple[Customer, Place, Review]]] = {}
     for customer, place, review in pending:
-        if _get_or_init_daily_count(
-            session, alerts_today_count, customer.customer_id, day_start, day_end
-        ) >= MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY:
-            if customer.customer_id not in skipped_customers_for_daily_cap:
-                skipped_customers_for_daily_cap.add(customer.customer_id)
-                on_progress(
-                    f"Customer {customer.customer_id}: daily alert cap "
-                    f"({MAX_ALERT_EMAILS_PER_CUSTOMER_PER_DAY}/day) reached — skipping remaining "
-                    "new reviews this cycle."
+        pending_by_customer.setdefault(customer.customer_id, []).append((customer, place, review))
+
+    for customer_id, customer_pending in pending_by_customer.items():
+        customer = customer_pending[0][0]
+        batched: list[tuple[str, DigestDraftItem]] = []
+
+        for _, place, review in customer_pending:
+            keyword = detect_health_keyword(review.text or "")
+            lead = LeadContext(
+                name=place.name,
+                address=place.address,
+                rating=review.rating,
+                review_date=review.review_date,
+                review_text=review.text,
+                notes=f"HEALTH_FLAG: {keyword}" if keyword else None,
+                city=place.city,
+            )
+            try:
+                generated = client.generate_customer_response(lead)
+            except Exception as exc:  # noqa: BLE001 — one bad review must not sink the whole batch
+                on_progress(f"Review {review.review_id} — FAILED: {exc}")
+                continue
+
+            is_urgent = review.rating is not None and review.rating <= 3
+            # ON CONFLICT DO NOTHING on (customer_id, review_id) — same double-fire guard as
+            # ticket 5.1's day-one job, and why EventBridge's at-least-once delivery is safe here.
+            insert_stmt = (
+                pg_insert(Alert)
+                .values(
+                    customer_id=customer_id,
+                    review_id=review.review_id,
+                    response_text=generated.text,
+                    generation_stop_reason=generated.stop_reason,
+                    is_urgent=is_urgent,
+                    kind=ALERT_KIND,
+                    run_id=run_id,
                 )
-            continue
+                .on_conflict_do_nothing(index_elements=[Alert.customer_id, Alert.review_id])
+            )
+            insert_result = session.execute(insert_stmt)
+            session.commit()
 
-        keyword = detect_health_keyword(review.text or "")
-        lead = LeadContext(
-            name=place.name,
-            address=place.address,
-            rating=review.rating,
-            review_date=review.review_date,
-            review_text=review.text,
-            notes=f"HEALTH_FLAG: {keyword}" if keyword else None,
-            city=place.city,
-        )
-        try:
-            generated = client.generate_customer_response(lead)
-        except Exception as exc:  # noqa: BLE001 — one bad review must not sink the whole batch
-            on_progress(f"Review {review.review_id} — FAILED: {exc}")
-            continue
+            if not insert_result.rowcount:
+                on_progress(f"Review {review.review_id} — already alerted (race), skipped.")
+                continue
+            result["new_alerts"] += 1
 
-        is_urgent = review.rating is not None and review.rating <= 3
-        # ON CONFLICT DO NOTHING on (customer_id, review_id) — same double-fire guard as ticket
-        # 5.1's day-one job, and the reason EventBridge's at-least-once delivery is safe here.
-        insert_stmt = (
-            pg_insert(Alert)
-            .values(
-                customer_id=customer.customer_id,
-                review_id=review.review_id,
+            if ALERT_EMAIL_APPROVED_ON is None:
+                on_progress(
+                    "ALERT_EMAIL_APPROVED_ON unset (ticket 5.4 pending Stakeholder/PM review of "
+                    f"the live proof) — alert composed but not sent for review {review.review_id}."
+                )
+                continue
+
+            draft_item = DigestDraftItem(
+                place_name=place.name,
+                rating=review.rating,
+                review_text=review.text or "",
                 response_text=generated.text,
-                generation_stop_reason=generated.stop_reason,
                 is_urgent=is_urgent,
-                kind=ALERT_KIND,
             )
-            .on_conflict_do_nothing(index_elements=[Alert.customer_id, Alert.review_id])
-        )
-        insert_result = session.execute(insert_stmt)
-        session.commit()
+            if not is_urgent:
+                batched.append((review.review_id, draft_item))
+                continue
 
-        if not insert_result.rowcount:
-            on_progress(f"Review {review.review_id} — already alerted (race), skipped.")
-            continue
+            # Urgent: breaks out of the batch and goes now, on its own. A 1* review that reads
+            # "found a hair in the food" is the one email in this product that must not wait for
+            # company, and must not be scrolled past underneath four thank-you notes.
+            if _at_daily_cap(
+                session,
+                alerts_today_count,
+                customer_id,
+                day_start,
+                day_end,
+                skipped_customers_for_daily_cap,
+                on_progress,
+            ):
+                result["deferred"] += 1
+                continue
 
-        alerts_today_count[customer.customer_id] += 1
-        result["new_alerts"] += 1
-
-        subject, text_body, html_body = render_alert_email(
-            place_name=place.name,
-            rating=review.rating,
-            review_text=review.text or "",
-            response_text=generated.text,
-            is_urgent=is_urgent,
-            health_flagged=keyword is not None,
-        )
-        if ALERT_EMAIL_APPROVED_ON is None:
+            subject, text_body, html_body = render_alert_email(
+                place_name=place.name,
+                rating=review.rating,
+                review_text=review.text or "",
+                response_text=generated.text,
+                is_urgent=True,
+                health_flagged=keyword is not None,
+            )
+            message_id = _send_and_stamp(
+                session, customer, [review.review_id], subject, text_body, html_body
+            )
+            if message_id:
+                alerts_today_count[customer_id] += 1
+                result["emails_sent"] += 1
             on_progress(
-                "ALERT_EMAIL_APPROVED_ON unset (ticket 5.4 pending Stakeholder/PM review of the "
-                f"live proof) — alert composed but not sent for review {review.review_id}."
+                f"Review {review.review_id} — urgent alert, email_sent={bool(message_id)}."
+            )
+
+        if not batched:
+            continue
+
+        if _at_daily_cap(
+            session,
+            alerts_today_count,
+            customer_id,
+            day_start,
+            day_end,
+            skipped_customers_for_daily_cap,
+            on_progress,
+        ):
+            # Drafts stay written with sent_at NULL, so ticket 5.7's sweep delivers them on a
+            # later run (as one batched email, not one each — see _sweep_unsent_alerts).
+            result["deferred"] += len(batched)
+            on_progress(
+                f"Customer {customer_id}: {len(batched)} non-urgent draft(s) deferred to a later "
+                "run by the daily email cap."
             )
             continue
 
-        message_id = send_email(
-            customer.notification_email or customer.email, subject, text_body, html_body
+        subject, text_body, html_body = render_batch_alert_digest([item for _, item in batched])
+        message_id = _send_and_stamp(
+            session,
+            customer,
+            [review_id for review_id, _ in batched],
+            subject,
+            text_body,
+            html_body,
         )
         if message_id:
-            session.execute(
-                update(Alert)
-                .where(
-                    Alert.customer_id == customer.customer_id,
-                    Alert.review_id == review.review_id,
-                )
-                .values(sent_at=now, postmark_message_id=message_id)
-            )
-            session.commit()
+            alerts_today_count[customer_id] += 1
             result["emails_sent"] += 1
         on_progress(
-            f"Review {review.review_id} — alerted "
-            f"({'urgent' if is_urgent else 'normal'}), email_sent={bool(message_id)}."
+            f"Customer {customer_id}: {len(batched)} non-urgent draft(s) in ONE digest, "
+            f"email_sent={bool(message_id)}."
         )
 
     result["daily_cap_skipped_customers"] = len(skipped_customers_for_daily_cap)
     return result
 
 
-def run_poll_customers_locked(on_progress=lambda msg: None) -> dict:
+def run_poll_customers_locked(
+    on_progress=lambda msg: None, run_id: str | None = None, trigger_source: str = "scheduler"
+) -> dict:
     """Entry point for app/routers/jobs.py's BackgroundTasks call (ticket 5.2's async-202
     follow-up, 2026-08-08) — opens its own DB session since a background task outlives the
     request's own session/dependency lifecycle.
@@ -628,10 +1049,17 @@ def run_poll_customers_locked(on_progress=lambda msg: None) -> dict:
         on_progress("Another poll-customers run is already in progress — skipping this trigger.")
         result = _empty_result()
         result["skipped_reason"] = "already_running"
+        # Deliberately leaves no poll_runs row: this trigger was coalesced into the run already
+        # in flight, so it did not run. The run it merged into will file its own row.
         return result
     try:
         with SessionLocal() as session:
-            return run_poll_customers(session, on_progress=on_progress)
+            return run_poll_customers(
+                session,
+                on_progress=on_progress,
+                run_id=run_id,
+                trigger_source=trigger_source,
+            )
     finally:
         _RUN_LOCK.release()
 
@@ -660,7 +1088,7 @@ def main(argv: list[str] | None = None) -> int:
         # entirely, so this CLI path exercises the exact same code as the real scheduled run.
         now = datetime.now(UTC).astimezone(WARSAW_TZ).replace(hour=12, minute=0, second=0)
     with SessionLocal() as session:
-        result = run_poll_customers(session, now=now, on_progress=print)
+        result = run_poll_customers(session, now=now, on_progress=print, trigger_source="cli")
     return 1 if result["aborted"] else 0
 
 

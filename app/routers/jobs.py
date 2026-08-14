@@ -54,8 +54,12 @@ class PollCustomersAcceptedResponse(BaseModel):
 
 
 def _run_and_log(run_id: str) -> None:
+    # The same run_id goes into the poll_runs row (ticket 6.4), so a row in /admin/runs and the
+    # CloudWatch lines for that run share one identifier instead of having to be matched by time.
     result = run_poll_customers_locked(
-        on_progress=lambda msg: logger.info("poll-customers[%s]: %s", run_id, msg)
+        on_progress=lambda msg: logger.info("poll-customers[%s]: %s", run_id, msg),
+        run_id=run_id,
+        trigger_source="scheduler",
     )
     logger.info("poll-customers[%s]: run complete — %s", run_id, result)
 

@@ -145,3 +145,61 @@ instant. Two render sites: `AlertsList.tsx` (`alert.review_date ?? alert.created
 
 **Done when:** the deployed `/app` loads with **zero** console errors, the timestamps still read as
 Warsaw local time, and the new test fails if `timeZone` is removed.
+
+---
+
+## 6.4 — Polling v2: batched alerts, adaptive fetch, run observability
+
+**Origin:** Stakeholder + PM decisions, 2026-08-13, from the investigation into why
+`pedram+11@defraged.com` (SAPKO KEBAB) received **ten separate emails between 08:01 and 08:02** on
+2026-08-11. That investigation found no bug in the sense of broken code — the poller did exactly
+what it was told — but three design faults behind the behavior, which this ticket fixes together
+because they interact: fixing the fetch limit without fixing the alert window would just fetch
+reviews the alerting could not see, and fixing either without batching would send more mail, not
+less.
+
+**Numbering note:** requested as "6.1" and "migration 009", both of which are already taken (6.1 is
+the deployed async-202 ticket; production is at migration `009 (head)`). Renumbered to **6.4** and
+**migration 010** with Stakeholder confirmation before any work started.
+
+**Scope, one deploy:**
+
+**A. Batched emails.** One digest per poll run per customer covering that run's non-urgent drafts,
+reusing the digest machinery; urgent (≤3★) reviews still break out as immediate individual emails.
+The 10/day per-customer cap stays as a pure runaway guard.
+
+**B. Adaptive fetch.** Fetch 2 newest per customer; if every fetched review is previously unknown,
+escalate 2 → 10 → 25, stopping as soon as a batch contains a known review.
+`MAX_REVIEW_RECORDS_PER_CUSTOMER` rises to 25 to match. Day-one connect fetch (10) unchanged.
+
+**C. Kill the consideration window.** Alerting selects ALL un-alerted reviews per customer within
+the ≤60-day / `connected_at` bounds, not the newest-10-in-DB — an escalated fetch must never age
+out an un-alerted review. **Amendment, agreed with the Stakeholder before starting:** those two
+bounds did not previously exist anywhere in the polling path (the 60-day rule lived only in
+`day_one.py`; `connected_at` was never a filter). They are new code, not preserved behavior, and
+removing the row limit without them would have meant drafting for every review ever stored.
+
+**D. Run observability.** Migration 010 adds `poll_runs` (run_id, started_at, finished_at,
+trigger_source, customers_polled, records_fetched, new_alerts, emails_sent, backfilled, skipped,
+deferred, aborted, error_note) and a nullable `alerts.run_id` FK. The poll job writes its row at
+start and updates it at completion, including partial and aborted runs. `/admin/runs` lists runs
+newest-first with every counter, red-flagged when skipped > 0 or aborted; a row opens
+`/admin/runs/[id]` with a per-customer breakdown of each review, its draft, its urgency and its
+email status. Customer detail groups alert history under run headers, falling back to the date for
+NULL `run_id`, with a "Runs" nav link. Read-only throughout.
+
+**E. LOGIC.md §8a** polling bullets updated (2-base ladder, batched digest + urgent breakout,
+cap-as-guard, run observability) with a "PM + Stakeholder 2026-08-13" changelog row.
+
+**Tests:** escalation triggers / terminates / is bounded by the ladder's top rung; batching groups
+non-urgent drafts with urgent breakout; un-alerted selection is unwindowed and the new bounds hold;
+an aborted run and a crashed run each leave a row; counters reconcile with the alerts created; NULL
+`run_id` falls back to date grouping.
+
+**Deferred by the Stakeholder, not run:** the SAPKO ground-truth check (does our review history
+match what Google actually shows). Noted as a Sprint 6 candidate.
+
+**Done when:** backend + frontend suites green, deployed, and the next scheduled tick is confirmed
+to have written its own `poll_runs` row and to render at `/admin/runs`.
+
+**Full evidence:** see the 6.4 row in `docs/PROGRESS.md`'s current-sprint table.

@@ -4,7 +4,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import admin, admin_customers, auth, billing, customer, health, jobs
+from app.routers import (
+    admin,
+    admin_customers,
+    admin_runs,
+    auth,
+    billing,
+    customer,
+    health,
+    jobs,
+)
 
 # Uvicorn configures handlers for its own loggers only ("uvicorn"/"uvicorn.access", both with
 # propagate=False, so this adds no duplicate access lines) and leaves the root logger bare.
@@ -45,6 +54,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(admin.router)
 app.include_router(admin_customers.router)
+app.include_router(admin_runs.router)
 app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(customer.router)

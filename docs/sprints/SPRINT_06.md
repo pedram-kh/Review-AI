@@ -298,3 +298,85 @@ PM attention regardless: this round's rendered-output check substituted a `next 
 + grep pass for the Playwright screenshot step 6.5's own evidence used, because installing
 Playwright this session was blocked by an autonomous-mutation safety review rather than a
 deliberate scope call.
+
+---
+
+## 6.6 — Legal pages, price revision, signup consent, cookie banner, bilingual landing
+
+**Origin:** Stakeholder-provided legal package, placed at
+`reviewguide-marketing/design-reference/DOC/{PL,EN}` +
+`IMPLEMENTATION-NOTE-for-developer.md`. Six parts, three repos, one deploy sequence (backend →
+`reviewguide-app` → `reviewguide-marketing`, matching CR-1's own ordering discipline so no live
+frontend ever posts a field a live backend doesn't yet require, or vice versa).
+
+**A. Legal pages (marketing repo).** Build-time Markdown→HTML via `lib/legal.ts` + a shared
+`components/legal-page.tsx` layout, 7 public/indexable routes: `/regulamin`+`/terms`,
+`/polityka-prywatnosci`+`/privacy-policy`, `/cookies`+`/cookie-policy`, `/dpa` (PL default, EN
+toggle — the implementation note's own suggestion for the one document with no natural PL/EN URL
+split). Source staged verbatim into `content/legal/{pl,en}/` from `design-reference/DOC` (kept
+pristine as the source of truth) except the two sanctioned amendments below. Every page in both
+`reviewguide-marketing` and `reviewguide-app` gained a footer with all four legal links, the
+company block, and a "Ustawienia cookies" / "Cookie settings" link (part D).
+
+**Sanctioned amendments, both languages (full diffs in the PROGRESS.md row / PM report):**
+1. ToS § 3(1)(a) gains "przy wykorzystaniu zewnętrznego dostawcy danych o opiniach"; § 3(1)(d)
+   rewritten from auto-publication-after-authorization to Customer-copies-and-publishes-himself;
+   § 3(3) rewritten from "requires OAuth + Google Business Profile permission grant" to "requires
+   no such connection — review data comes from a third-party provider, the Customer publishes the
+   approved response themselves"; § 4(1)(d) updated to match (no longer says the Google account
+   must be "connected", just that the Customer has one to publish into). § 3(2)'s
+   no-auto-publication sentence is untouched, per the ticket.
+2. Privacy § 5 (Odbiorcy danych) and DPA § 5's subprocessor table both gain a
+   "Dane opinii / review data provider" row/category naming **Outscraper**, possible non-EEA
+   transfer, SCC basis. All other rows/lists verbatim.
+
+**B. Price revision.** New Stripe test-mode price `price_1U4DskIDs1qO8e1TvXTPpXqJ` — 39.00 PLN,
+monthly, `tax_behavior=exclusive` — created on the existing `prod_V1kJpQV68xv2sW` product (already
+carrying `tax_code=txcd_10103001` from CR-1/4.6's tax work). `STRIPE_PRICE_ID` updated on App
+Runner. `POST /api/billing/checkout` gained `automatic_tax={"enabled": true}` +
+`customer_update={"address":"auto","name":"auto"}` so Checkout computes and shows the gross total
+before confirmation (ToS § 7.2). Landing pricing card → "39 zł netto / mies. + VAT" +
+"kwota brutto widoczna przy płatności"; repo-wide sweep for "129" left only historical/comment
+occurrences (ROADMAP decisions log, this sprint file, code comments recording the supersession).
+
+**C. Signup + trial-start consent.** Migration 011 on `customers`: `terms_version_accepted`,
+`terms_accepted_at`, `marketing_consent` (+`_at`), `immediate_start_consent` (+`_at`) — plus four
+transient carrier columns on `auth_tokens`, needed because a `Customer` row doesn't exist yet at
+`/signup`'s request-link time and the magic link is frequently opened on a different device than
+the one that ticked the boxes. `/signup` gained two checkboxes (required Terms+Privacy, blocks
+submit; optional marketing) wired through `request-link`'s `accept_terms`/`marketing_consent`
+fields; `/app`'s trial-start form gained the required immediate-start/withdrawal-waiver checkbox
+(Terms § 8.3 wording), enforced both client-side (native `required`) and server-side
+(`POST /api/billing/checkout` 400s without `immediate_start_consent: true`). Version stamped
+`"1.0 / 2026-08-11"` on every accepted row.
+
+**D. Cookie banner (marketing site only — `reviewguide-app` stays essential-only, stated in the
+report, not newly built here).** First-visit banner, Accept/Reject/Settings as equal-weight
+buttons, choice persisted in a `reviewguide_consent` cookie (not localStorage, since the Cookie
+Policy itself discloses that cookie as essential/no-consent-required), reopenable via the footer's
+settings link at any time. Google Consent Mode v2 bootstrap (`consent-mode-init.tsx`) sets every
+signal to `denied` synchronously in `<head>`, before hydration; GA4 loading
+(`ga4-loader.tsx`) is gated on both analytics consent AND a non-empty
+`NEXT_PUBLIC_GA_MEASUREMENT_ID`, which ships **empty** — analytics activates later purely via an
+env var, no code change.
+
+**E. Bilingual landing.** Every landing section (`hero-section.tsx`, `how-it-works.tsx`,
+`demo-section.tsx`, `pricing-section.tsx`, `faq-section.tsx`, `final-cta-section.tsx`,
+`site-nav.tsx`) took a `lang` prop with a `pl`/`en` `COPY` table. `demo-section.tsx`'s two real
+review examples stay Polish, with an "(example in Polish)" note in the English variant. `/en`
+route built with its own `hreflang` alternates (`canonical: /en`) and `SetHtmlLang` (a client
+component setting `document.documentElement.lang`, since a static-export root layout can't vary
+`<html lang>` per route). **Gated behind `NEXT_PUBLIC_EN_LANDING_ENABLED`** (default `false`, see
+`lib/en-landing.ts`) — `/en` calls `notFound()` and the nav's PL→EN switch stays hidden until the
+PM approves the EN hero/pricing/FAQ copy pasted in this ticket's delivery report. English legal
+pages (`/terms`, `/privacy-policy`, `/cookie-policy`, `/dpa`'s EN toggle) are **not** gated —
+they're live now, independent of the landing-copy approval, per the ticket's own framing ("PL-side
+changes deploy immediately").
+
+**F. Verify.** Full evidence — 129/39-zł sweep, tax calculation (39.00 net + 8.97 VAT = 47.97
+gross for a PL customer), live consent-gate checks against the deployed backend, cookie-banner
+reject-path cookie audit, Lighthouse (desktop 100/96/100/100, mobile 97/96/100/100 vs the 6.5
+baseline of 100/95/100/100 desktop / ~95 mobile — both within the ±2 band), and the amendment
+diffs — is in the 6.6 row of `docs/PROGRESS.md`'s current-sprint table and the delivery report.
+
+**Full evidence:** see the 6.6 row in `docs/PROGRESS.md`'s current-sprint table.

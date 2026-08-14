@@ -379,4 +379,19 @@ reject-path cookie audit, Lighthouse (desktop 100/96/100/100, mobile 97/96/100/1
 baseline of 100/95/100/100 desktop / ~95 mobile — both within the ±2 band), and the amendment
 diffs — is in the 6.6 row of `docs/PROGRESS.md`'s current-sprint table and the delivery report.
 
+**Status: ✅ ACCEPTED (PM, 2026-08-14)** — "§3(3) OAuth-disclaimer rewrite commended (stronger
+than sanctioned), amendment diffs verified against pristine reference, live Stripe Tax proof
+(47.97 zł gross), consent gates live-tested, `/en` gated correctly." EN hero/pricing/FAQ copy
+approved verbatim in the same message. Follow-through, same session: `/en` launched —
+`NEXT_PUBLIC_EN_LANDING_ENABLED=true` set on Netlify (production context), redeployed
+(`6a7efd47…`, `state: ready`), live-verified: `/en` now serves the real English page (its
+`<meta name="robots" content="noindex">` and the Next.js not-found body are both gone, replaced
+by the actual EN hero/how-it-works/demo/pricing/FAQ/final-CTA/footer content, `<title>`
+"ReviewGuide — a professional response to every Google review"), the nav language switch shows
+both directions (`/` → `EN` link to `/en`; `/en` → `PL` link back to `/`), `hreflang` alternates
+present and unchanged on both routes (`pl`→`/`, `en`→`/en`, `x-default`→`/`), and `/en`'s footer
+legal links correctly point at the EN routes (`/terms`, `/privacy-policy`, `/cookie-policy`,
+`/dpa`) with the "Cookie settings" label. All four EN legal pages re-confirmed 200 post-redeploy;
+zero "129" still holds on the PL homepage.
+
 **Full evidence:** see the 6.6 row in `docs/PROGRESS.md`'s current-sprint table.

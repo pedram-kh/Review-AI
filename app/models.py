@@ -88,6 +88,22 @@ class Customer(Base):
     # The run's own result dict (app/jobs/day_one.py's `_empty_result` shape), plus an "error" key
     # when the run raised. Written once, when the run ends.
     day_one_result: Mapped[dict | None] = mapped_column(JSON)
+    # Migration 011 (ticket 6.6, part C) — proof of consent, per the legal package's implementation
+    # note §2/§6. `terms_version_accepted` is a free-text version string ("1.0 / 2026-08-11"), not
+    # a FK to a documents table — there is no such table, and the version is what the legal package
+    # itself uses to identify a specific Terms revision. Copied onto this row from the `auth_tokens`
+    # row that created it (see that model's own comment) rather than collected here directly, since
+    # this row doesn't exist yet at the moment the consent checkboxes are actually ticked.
+    terms_version_accepted: Mapped[str | None] = mapped_column(Text)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    marketing_consent: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
+    marketing_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set by POST /api/billing/checkout (Terms § 8.3's withdrawal-waiver checkbox), not at signup —
+    # this Customer row already exists by the time a logged-in user reaches the trial-start step.
+    immediate_start_consent: Mapped[bool] = mapped_column(
+        Boolean, server_default=false(), nullable=False
+    )
+    immediate_start_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuthToken(Base):
@@ -107,6 +123,16 @@ class AuthToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Migration 011 (ticket 6.6) — transient carrier for the /signup consent checkboxes, copied
+    # onto the new/existing Customer row at verify() time. See that migration's docstring for why
+    # this lives here rather than only on `customers`: the Customer row this consent belongs to
+    # doesn't exist yet when request_link() ticks these, and the token consuming them (via the
+    # emailed link) is frequently a different browser/device than the one that submitted /signup.
+    # NULL on every ordinary /login request-link call (no checkboxes shown there).
+    terms_version_accepted: Mapped[str | None] = mapped_column(Text)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    marketing_consent: Mapped[bool | None] = mapped_column(Boolean)
+    marketing_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Lead(Base):

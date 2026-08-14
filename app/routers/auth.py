@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.auth import (
     RATE_LIMIT_MAX_REQUESTS,
     RATE_LIMIT_WINDOW,
+    TERMS_VERSION,
     TOKEN_TTL,
     create_session_token,
     generate_raw_token,
@@ -48,6 +49,14 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class RequestLinkBody(BaseModel):
     email: EmailStr
+    # Ticket 6.6, part C. `signup` is a hint from the caller (true only from /signup's form, never
+    # from /login's) that the required Terms+Privacy checkbox must have been ticked — the backend
+    # can't otherwise tell signup and login apart, since both hit this same endpoint by design
+    # (see this module's own docstring on why customers are created lazily at verify, not here).
+    # A /login submission (signup=false) needs neither field and they're ignored if sent anyway.
+    signup: bool = False
+    accept_terms: bool = False
+    marketing_consent: bool = False
 
 
 class RequestLinkResponse(BaseModel):
@@ -60,6 +69,12 @@ def request_link(
 ) -> RequestLinkResponse:
     email = body.email.strip().lower()
     now = datetime.now(UTC)
+
+    if body.signup and not body.accept_terms:
+        raise HTTPException(
+            status_code=400,
+            detail="Musisz zaakceptować Regulamin i Politykę Prywatności, aby założyć konto.",
+        )
 
     recent_count = session.execute(
         select(func.count())
@@ -75,9 +90,13 @@ def request_link(
         )
 
     raw_token = generate_raw_token()
-    session.add(
-        AuthToken(token_hash=hash_token(raw_token), email=email, expires_at=now + TOKEN_TTL)
-    )
+    new_token = AuthToken(token_hash=hash_token(raw_token), email=email, expires_at=now + TOKEN_TTL)
+    if body.signup and body.accept_terms:
+        new_token.terms_version_accepted = TERMS_VERSION
+        new_token.terms_accepted_at = now
+        new_token.marketing_consent = body.marketing_consent
+        new_token.marketing_consent_at = now if body.marketing_consent else None
+    session.add(new_token)
     session.commit()
 
     magic_link_url = f"{settings.app_origin}/auth/verify?token={raw_token}"
@@ -129,16 +148,30 @@ def verify(body: VerifyBody, session: Session = Depends(get_session)) -> VerifyR
         )
     session.commit()
 
-    email = session.execute(
-        select(AuthToken.email).where(AuthToken.token_hash == token_hash)
+    used_token = session.execute(
+        select(AuthToken).where(AuthToken.token_hash == token_hash)
     ).scalar_one()
+    email = used_token.email
 
     customer = session.execute(select(Customer).where(Customer.email == email)).scalar_one_or_none()
     if customer is None:
         customer = Customer(email=email, notification_email=email)
         session.add(customer)
-        session.commit()
-        session.refresh(customer)
+
+    # Ticket 6.6, part C: copy this token's consent snapshot (NULL on an ordinary /login
+    # request-link, set on a /signup one — see RequestLinkBody's own comment) onto the customer.
+    # Terms acceptance is recorded once and kept — re-ticking the same checkbox on a later /signup
+    # visit shouldn't erase the original accepted_at. Marketing consent is the opposite: it's a
+    # live preference, so the most recent explicit submission always wins.
+    if used_token.terms_version_accepted and customer.terms_accepted_at is None:
+        customer.terms_version_accepted = used_token.terms_version_accepted
+        customer.terms_accepted_at = used_token.terms_accepted_at
+    if used_token.marketing_consent is not None:
+        customer.marketing_consent = used_token.marketing_consent
+        customer.marketing_consent_at = used_token.marketing_consent_at
+
+    session.commit()
+    session.refresh(customer)
 
     session_token = create_session_token(customer.customer_id, customer.email)
     return VerifyResponse(session_token=session_token, email=customer.email)

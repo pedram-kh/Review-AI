@@ -24,6 +24,12 @@ SESSION_TTL = timedelta(days=30)
 RATE_LIMIT_WINDOW = timedelta(hours=1)
 RATE_LIMIT_MAX_REQUESTS = 3
 
+# Ticket 6.6, part C — the Terms/Privacy Policy version the consent checkboxes are tied to
+# (design-reference/DOC's own "Wersja: 1.0" + "Data wejścia w życie: 11 sierpnia 2026 r."). A
+# plain string, not a DB-backed documents table: the legal package itself is the source of truth
+# for what "1.0" means, and there's exactly one current version at a time.
+TERMS_VERSION = "1.0 / 2026-08-11"
+
 JWT_ALGORITHM = "HS256"
 
 

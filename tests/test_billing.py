@@ -99,7 +99,9 @@ def test_checkout_creates_stripe_customer_and_session(db_session, billing_settin
         mock_checkout_create.return_value = MagicMock(url="https://checkout.stripe.com/session123")
 
         response = client.post(
-            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+            "/api/billing/checkout",
+            headers=_session_header(customer.customer_id, customer.email),
+            json={"immediate_start_consent": True},
         )
 
     assert response.status_code == 200
@@ -113,9 +115,48 @@ def test_checkout_creates_stripe_customer_and_session(db_session, billing_settin
     assert checkout_kwargs["line_items"] == [{"price": TEST_STRIPE_PRICE_ID, "quantity": 1}]
     assert checkout_kwargs["subscription_data"] == {"trial_period_days": 14}
     assert checkout_kwargs["payment_method_collection"] == "always"
+    assert checkout_kwargs["automatic_tax"] == {"enabled": True}
+    assert checkout_kwargs["customer_update"] == {"address": "auto", "name": "auto"}
 
     db_session.refresh(customer)
     assert customer.stripe_customer_id == "cus_new123"
+    assert customer.immediate_start_consent is True
+    assert customer.immediate_start_consent_at is not None
+
+
+# --- ticket 6.6 part C: immediate-start consent gate --------------------------------------------
+
+
+def test_checkout_400_without_immediate_start_consent(db_session, billing_settings) -> None:
+    customer = _seed_customer(db_session, email="no-immediate-start-consent@example.com")
+
+    with (
+        patch("stripe.Customer.create") as mock_customer_create,
+        patch("stripe.checkout.Session.create") as mock_checkout_create,
+    ):
+        response = client.post(
+            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+        )
+
+    assert response.status_code == 400
+    mock_customer_create.assert_not_called()
+    mock_checkout_create.assert_not_called()
+    db_session.refresh(customer)
+    assert customer.immediate_start_consent is False
+
+
+def test_checkout_400_when_immediate_start_consent_explicitly_false(
+    db_session, billing_settings
+) -> None:
+    customer = _seed_customer(db_session, email="explicit-false-consent@example.com")
+
+    response = client.post(
+        "/api/billing/checkout",
+        headers=_session_header(customer.customer_id, customer.email),
+        json={"immediate_start_consent": False},
+    )
+
+    assert response.status_code == 400
 
 
 @pytest.mark.parametrize("status", ["trialing", "active"])
@@ -131,7 +172,9 @@ def test_checkout_409_when_already_subscribed(db_session, billing_settings, stat
         patch("stripe.checkout.Session.create") as mock_checkout_create,
     ):
         response = client.post(
-            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+            "/api/billing/checkout",
+            headers=_session_header(customer.customer_id, customer.email),
+            json={"immediate_start_consent": True},
         )
 
     assert response.status_code == 409
@@ -156,7 +199,9 @@ def test_checkout_allowed_for_non_active_statuses(db_session, billing_settings, 
         mock_checkout_create.return_value = MagicMock(url="https://checkout.stripe.com/x")
 
         response = client.post(
-            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+            "/api/billing/checkout",
+            headers=_session_header(customer.customer_id, customer.email),
+            json={"immediate_start_consent": True},
         )
 
     assert response.status_code == 200
@@ -174,7 +219,9 @@ def test_checkout_reuses_existing_stripe_customer_id(db_session, billing_setting
         mock_checkout_create.return_value = MagicMock(url="https://checkout.stripe.com/reuse")
 
         response = client.post(
-            "/api/billing/checkout", headers=_session_header(customer.customer_id, customer.email)
+            "/api/billing/checkout",
+            headers=_session_header(customer.customer_id, customer.email),
+            json={"immediate_start_consent": True},
         )
 
     assert response.status_code == 200

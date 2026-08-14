@@ -148,6 +148,73 @@ def test_request_link_still_returns_200_if_send_raises(
     assert response.status_code == 200
 
 
+# --- POST /api/auth/request-link, ticket 6.6 part C: signup consent ---------------------------
+
+
+def test_request_link_signup_blocked_without_accept_terms(
+    db_session, auth_settings, mock_send
+) -> None:
+    response = client.post(
+        "/api/auth/request-link",
+        json={"email": "no-consent@example.com", "signup": True, "accept_terms": False},
+    )
+
+    assert response.status_code == 400
+    mock_send.assert_not_called()
+
+
+def test_request_link_login_does_not_require_accept_terms(
+    db_session, auth_settings, mock_send
+) -> None:
+    """signup=False (the /login page's default) never needs a ticked terms checkbox."""
+    response = client.post(
+        "/api/auth/request-link", json={"email": "logging-in@example.com", "signup": False}
+    )
+
+    assert response.status_code == 200
+
+
+def test_request_link_signup_stores_terms_version_and_timestamp_on_token(
+    db_session, auth_settings, mock_send
+) -> None:
+    email = "signup-consent@example.com"
+    client.post(
+        "/api/auth/request-link",
+        json={"email": email, "signup": True, "accept_terms": True, "marketing_consent": True},
+    )
+
+    token = db_session.query(AuthToken).filter_by(email=email).one()
+    assert token.terms_version_accepted == "1.0 / 2026-08-11"
+    assert token.terms_accepted_at is not None
+    assert token.marketing_consent is True
+    assert token.marketing_consent_at is not None
+
+
+def test_request_link_signup_without_marketing_consent_leaves_it_false(
+    db_session, auth_settings, mock_send
+) -> None:
+    email = "no-marketing@example.com"
+    client.post(
+        "/api/auth/request-link",
+        json={"email": email, "signup": True, "accept_terms": True, "marketing_consent": False},
+    )
+
+    token = db_session.query(AuthToken).filter_by(email=email).one()
+    assert token.marketing_consent is False
+    assert token.marketing_consent_at is None
+
+
+def test_request_link_ordinary_login_leaves_consent_columns_null_on_token(
+    db_session, auth_settings, mock_send
+) -> None:
+    email = "plain-login@example.com"
+    client.post("/api/auth/request-link", json={"email": email})
+
+    token = db_session.query(AuthToken).filter_by(email=email).one()
+    assert token.terms_version_accepted is None
+    assert token.marketing_consent is None
+
+
 # --- POST /api/auth/verify -------------------------------------------------------------------
 
 
@@ -158,6 +225,8 @@ def _seed_token(
     raw_token: str = "raw-test-token",
     expired: bool = False,
     used: bool = False,
+    terms_version_accepted: str | None = None,
+    marketing_consent: bool | None = None,
 ) -> None:
     now = datetime.now(UTC)
     db_session.add(
@@ -166,6 +235,10 @@ def _seed_token(
             email=email,
             expires_at=now - timedelta(minutes=1) if expired else now + timedelta(minutes=15),
             used_at=now if used else None,
+            terms_version_accepted=terms_version_accepted,
+            terms_accepted_at=now if terms_version_accepted else None,
+            marketing_consent=marketing_consent,
+            marketing_consent_at=now if marketing_consent else None,
         )
     )
     db_session.commit()
@@ -243,6 +316,67 @@ def test_verify_rejects_unknown_token(db_session, auth_settings, mock_send) -> N
     response = client.post("/api/auth/verify", json={"token": "never-issued-token"})
 
     assert response.status_code == 401
+
+
+def test_verify_copies_token_consent_onto_newly_created_customer(
+    db_session, auth_settings, mock_send
+) -> None:
+    email = "verify-consent@example.com"
+    _seed_token(
+        db_session, email=email, terms_version_accepted="1.0 / 2026-08-11", marketing_consent=True
+    )
+
+    client.post("/api/auth/verify", json={"token": "raw-test-token"})
+
+    customer = db_session.query(Customer).filter_by(email=email).one()
+    assert customer.terms_version_accepted == "1.0 / 2026-08-11"
+    assert customer.terms_accepted_at is not None
+    assert customer.marketing_consent is True
+    assert customer.marketing_consent_at is not None
+
+
+def test_verify_does_not_overwrite_an_existing_terms_accepted_at(
+    db_session, auth_settings, mock_send
+) -> None:
+    """Re-ticking the same checkbox on a later /signup visit must not erase the original
+    acceptance timestamp — see verify()'s own comment."""
+    email = "re-signup@example.com"
+    original_accepted_at = datetime.now(UTC) - timedelta(days=3)
+    db_session.add(
+        Customer(
+            email=email,
+            notification_email=email,
+            terms_version_accepted="1.0 / 2026-08-11",
+            terms_accepted_at=original_accepted_at,
+        )
+    )
+    db_session.commit()
+
+    _seed_token(db_session, email=email, terms_version_accepted="1.0 / 2026-08-11")
+    client.post("/api/auth/verify", json={"token": "raw-test-token"})
+
+    customer = db_session.query(Customer).filter_by(email=email).one()
+    # SQLite (the test DB) round-trips datetimes as naive, dropping tzinfo — compare the naive
+    # wall-clock value only, which is what actually proves accepted_at wasn't overwritten.
+    assert customer.terms_accepted_at.replace(microsecond=0, tzinfo=None) == original_accepted_at.replace(
+        microsecond=0, tzinfo=None
+    )
+
+
+def test_verify_updates_marketing_consent_on_an_existing_customer(
+    db_session, auth_settings, mock_send
+) -> None:
+    """Marketing consent is a live preference — the most recent explicit submission always
+    wins, unlike terms acceptance."""
+    email = "changed-mind@example.com"
+    db_session.add(Customer(email=email, notification_email=email, marketing_consent=False))
+    db_session.commit()
+
+    _seed_token(db_session, email=email, marketing_consent=True)
+    client.post("/api/auth/verify", json={"token": "raw-test-token"})
+
+    customer = db_session.query(Customer).filter_by(email=email).one()
+    assert customer.marketing_consent is True
 
 
 def test_verify_session_token_is_a_valid_jwt_with_30_day_expiry(

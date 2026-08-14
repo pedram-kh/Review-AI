@@ -13,6 +13,7 @@ calling us, authenticated instead by Stripe's HMAC signature on the payload
 """
 
 import logging
+from datetime import UTC, datetime
 
 import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -76,19 +77,40 @@ class CheckoutResponse(BaseModel):
     checkout_url: str
 
 
+class CheckoutRequestBody(BaseModel):
+    # Ticket 6.6, part C — Terms § 8.3's withdrawal-waiver checkbox, required at trial-start (this
+    # is the first request after signup where a Customer row is guaranteed to exist, so it's
+    # captured here rather than at /signup). Defaults false so an un-updated/stripped-down caller
+    # is rejected rather than silently granted a waiver it never asked for.
+    immediate_start_consent: bool = False
+
+
 @router.post("/checkout")
 def create_checkout_session(
+    body: CheckoutRequestBody = CheckoutRequestBody(),
     customer: Customer = Depends(get_current_customer),
     session: Session = Depends(get_session),
 ) -> CheckoutResponse:
     _require_stripe_configured()
     if not settings.stripe_price_id:
         raise HTTPException(status_code=503, detail="Billing is not configured yet (no price).")
+    if not body.immediate_start_consent:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Musisz zaznaczyć zgodę na natychmiastowe rozpoczęcie usługi, aby przejść do "
+                "płatności."
+            ),
+        )
     if customer.subscription_status in _ALREADY_SUBSCRIBED_STATUSES:
         raise HTTPException(
             status_code=409,
             detail="Masz już aktywną subskrypcję — zarządzaj nią w portalu klienta.",
         )
+
+    customer.immediate_start_consent = True
+    customer.immediate_start_consent_at = datetime.now(UTC)
+    session.commit()
 
     stripe_customer_id = _get_or_create_stripe_customer(customer, session)
 
@@ -101,6 +123,13 @@ def create_checkout_session(
         # log): auto-converts to paid at day 14 with no second action from the customer. Was
         # "if_required" (cardless trial) through Sprint 4/5; changed here as ticket 5.9/CR-1.
         payment_method_collection="always",
+        # Ticket 6.6, part B — the new 39 zł NETTO price needs the GROSS (incl. VAT) total shown
+        # before the customer confirms (ToS § 7.2). automatic_tax computes it from the Customer's
+        # billing address, which Checkout itself collects when the address isn't already known;
+        # customer_update lets that collected address persist back onto the Stripe Customer object
+        # (harmless no-op for a Customer that already has one).
+        automatic_tax={"enabled": True},
+        customer_update={"address": "auto", "name": "auto"},
         success_url=f"{settings.app_origin}/app?checkout=success",
         cancel_url=f"{settings.app_origin}/app?checkout=cancelled",
     )

@@ -37,7 +37,7 @@ pointed at paying customers' profiles.
 | Frontend hosting | **Netlify free tier** (both frontends) | marketing = static export → zero runtime issues |
 | Framework | **Next.js + React** (both frontends) | Cursor strongest here |
 | Auth | Magic link (app repo, Sprint 4) | Restaurant owners forget passwords |
-| Billing | **Stripe** Checkout + Customer Portal | 14-day trial, **card required upfront**, auto-converts day 14. 129 zł/mo (G3) |
+| Billing | **Stripe** Checkout + Customer Portal | 14-day trial, **card required upfront**, auto-converts day 14. **39 zł netto/mo + VAT** (G3 rev. 2026-08-14) |
 | Email delivery | **Postmark** (subdomain sender, e.g. mail.domain.pl) | Deliverability is a product feature |
 
 **Repo map:** `backend` (FastAPI, this docs folder lives here) · `app` (Next.js: customer panel + /admin) · `marketing` (Next.js static landing). Docs stay in `backend/docs/` as the single source; other repos link to it.
@@ -60,7 +60,7 @@ pointed at paying customers' profiles.
 |---|---|---|---|
 | G1 | Sprint 0 | Which city? | ✅ **DECIDED: Warsaw, multi-district.** Sweep 1 = central districts (Śródmieście, Mokotów, Wola, Praga-Płd., Żoliborz ≈ 1,800–2,200 restaurants, ~$70). Expand outward when sending capacity allows. |
 | G2 | End of Sprint 3 | Reply rate ≥ ~3–5% and any positive interest? If NO → Sprint 4 becomes "fix funnel", not billing | Stakeholder + PM |
-| G3 | End of Sprint 4 | Final price point | ✅ **DECIDED 2026-08-07: 129 zł/mies** (ratified by Stakeholder) |
+| G3 | End of Sprint 4 | Final price point | ✅ **DECIDED 2026-08-07: 129 zł/mies → REVISED 2026-08-14: 39 zł netto/mies + VAT** (ratified by Stakeholder) |
 | G4 | 10 paying customers | Automate posting via Google Business Profile API? Second city? Hotels? | Stakeholder + PM |
 
 ## 4b. Decisions log (what was chosen and why — newest first)
@@ -68,6 +68,7 @@ pointed at paying customers' profiles.
 | Date | Decision | Chosen | Rejected & why |
 |---|---|---|---|
 | 2026-08-09 | Email template images | Hosted images from reviewguide.eu allowed in email templates, superseding ticket 5.4's no-external-images rule. Constraint: images must never carry information — live-text fallback required so image-blocking clients degrade to a branded header, not a gap. Ratified by PM at 6.2 acceptance. | 5.4's blanket ban — proxy for a property (no injected/tracking images) now tested directly |
+| 2026-08-14 | G3 REVISED: launch price 39 zł netto/mies + VAT | Supersedes the 129 zł decision. Aligned with legal-package pricing; net pricing per ToS §7.2, gross shown at checkout via Stripe Tax. Stakeholder call; PM margin sanity-check passed (~$10 net revenue vs ~$2.5–4 serving cost). Applies EVERYWHERE: landing, Stripe price object, panel, docs | Keeping 129 (premium positioning — Stakeholder chose volume entry; price raises harder than cuts, accepted) |
 | 2026-08-09 | Trial payment model | CARD REQUIRED UPFRONT at checkout (14-day trial unchanged; auto-converts to paid at day 14; cancel anytime via portal). Landing copy updated to match — "bez karty" removed everywhere. Stakeholder call, PM recommendation (cardless + switch-gate at 10 trials) overruled: UX continuity + auto-conversion prioritized over top-of-funnel volume | Cardless launch (PM pick — cold-funnel trust friction); day-11 nudge middle path |
 | 2026-08-09 | Geographic scope of customer product | OPEN BY DESIGN — any country's restaurant can connect (Outscraper searches globally; v1.4 city-derived persona + KROK 0 language matching handle non-PL gracefully). Ratified by Stakeholder. Known asterisks, accepted: UI/emails/panel are Polish-only; pricing is zł-only; polling window is Warsaw-time; marketing targets PL. Foreign signups are welcome accidents, not a served segment — revisit (i18n, currency, timezone-per-customer) only if they actually appear | Geo-fencing connections to Poland (blocks organic upside for zero benefit) |
 | 2026-08-09 | Outreach quality gate (2.4/2.5) — PLAN B executed | Joint internal review: PM full read of all 40 v1.2 responses (39 SEND / 1 EDIT / 0 BAD; health-flagged all clean; #26 Thai Me Up regenerated for rule-5 admission language) + Stakeholder confirmation; template approved (Anna, maks. 2 godzin wording). Logged honestly as NOT native-verified — revisit prompt/template at first real replies. First batch: 100 leads (40 + 60 new) per Stakeholder pacing choice; remaining 113 on demand via RUNBOOK | Waiting longer for the PL reviewer (missed the Saturday deadline; sending data now beats a fourth day of silence) |

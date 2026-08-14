@@ -43,8 +43,9 @@ class Settings(BaseSettings):
     # Verifies the signature on inbound Stripe webhook events (app/routers/billing.py) — without
     # this, POST /api/billing/webhook rejects everything rather than trusting an unverified body.
     stripe_webhook_secret: str = ""
-    # The test-mode Price object for the single "ReviewGuide" plan (129 zł/mies placeholder per
-    # SPRINT_04.md's Stakeholder actions table, pending the G3 pricing call).
+    # The test-mode Price object for the single "ReviewGuide" plan — 39 zł netto/mies + VAT as
+    # of ticket 6.6's price revision (tax_behavior=exclusive; supersedes the original 129 zł/mies
+    # placeholder from SPRINT_04.md's Stakeholder actions table).
     stripe_price_id: str = ""
     # SPRINT_05.md ticket 5.2. Compared (constant-time) against the X-Job-Key header on
     # POST /api/jobs/poll-customers — the same "shared-secret header, never reaches a browser"

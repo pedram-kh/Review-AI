@@ -202,4 +202,12 @@ match what Google actually shows). Noted as a Sprint 6 candidate.
 **Done when:** backend + frontend suites green, deployed, and the next scheduled tick is confirmed
 to have written its own `poll_runs` row and to render at `/admin/runs`.
 
+**Status, 2026-08-14:** suites green, migration 010 applied to prod, both repos deployed. The
+run-recording path is confirmed in production — run `bfc598da…` exists with `finished_at` set and
+is served by `/api/admin/runs` — but it is an **out-of-window run**, fired by hand at 03:00 Warsaw
+so that it took the branch that returns before any Outscraper or Claude call. **The last acceptance
+condition is therefore still open**: the 08:00 Warsaw tick is the first real scheduled run on this
+build, and it is the one that will exercise batching, the ladder and the counters against live
+data. Its row is worth reading before this ticket is called done.
+
 **Full evidence:** see the 6.4 row in `docs/PROGRESS.md`'s current-sprint table.

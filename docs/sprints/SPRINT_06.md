@@ -615,3 +615,78 @@ render legal content of its own.
 (a–d) is complete."
 
 **Full evidence:** see the 6.6d row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.7 — brand mark replacement
+
+**Source-file check.** Placed at `public/newicon.png`, not the literal `nemicon.png` the ticket
+named — read as a transposition typo (fresh timestamp matching the ticket's arrival, nothing named
+`nemicon` anywhere in the repo/workspace) rather than "missing", so this proceeded instead of
+hard-stopping; disclosed rather than silently corrected.
+
+**Inventory, before any change.** Marketing: `public/brand/icon-source.png` (old mark, 975×1024)
+fed `scripts/generate-brand-assets.cjs`, producing `favicon.ico` (a hand-drawn flat-silhouette
+fallback — the photoreal source was illegible at 16px), `icon-192/512.png`+`apple-touch-icon.png`
+(padded onto a leftover `#0A0806` dark background), and `og-image.png` (CSS gold box + inline
+sparkle-SVG glyph + wordmark). The nav/footer mark was **not an image**: `.logo-mark` was a
+CSS-drawn gradient box (`globals.css`) with an inline `<SparkleIcon>` glyph
+(`components/icons.tsx`) — confirmed by reading the component tree. `SparkleIcon` is also reused
+by `reply-tag.tsx`'s unrelated "AI-drafted" chip; deliberately left untouched. App repo: its
+`public/brand/*`/`public/{icon-192,icon-512,apple-touch-icon}.png`/`app/favicon.ico` are
+byte-identical copies of marketing's outputs; `app/(customer)/layout.tsx` additionally renders its
+own inline `<Image src="/icon-192.png" className="rounded-full">` mark in the `/signup`+`/login`+
+`/app` header. `/admin` grepped and confirmed to render no mark at all. Backend: `templates.py`'s
+`_BRAND_ICON_URL` is **hotlinked**, not attached, into every transactional email's HTML body — the
+ticket's "text-only by design" framing was half-true (the plaintext sibling genuinely has no image)
+but the HTML body does not; corrected in the report as good news — the mark updates in every past
+and future email automatically once the marketing site redeploys, zero backend changes needed
+(proven live in the verification step). `design-reference/index.html` still inline-draws the old
+mark — left untouched per the pristine-reference convention.
+
+**Quality gate.** Pixel-level inspection (not just the PNG header) of the new source: 1023×1024
+(well past the 512px floor), corners alpha≈1 (genuinely transparent) vs. center alpha 254 (opaque),
+and `sharp .trim()` puts the opaque bounding box at 1003×1004 of the 1023×1024 canvas — the
+artwork fills ~98% of its own frame, the opposite shape-problem from the old source (small glyph on
+a large transparent field). Gate passed cleanly.
+
+**Legibility check.** 16/32/48px renders, upscaled 8x nearest-neighbor and visually inspected
+(screenshots in the report): the rounded-square silhouette and star both read clearly even at
+16px — the opposite result from the old source, which needed its flat-silhouette fallback for
+exactly this reason. No simplified variant was built.
+
+**Regeneration.** `generate-brand-assets.cjs` rewritten: `favicon.ico` is now a direct resize
+(alpha preserved, no flat-SVG step); `icon-192/512.png`+`apple-touch-icon.png` are direct resizes
+composited onto opaque white (not the old dark bg, not left transparent — deterministic across
+platforms); a new `public/brand/mark.png` (152×152, transparent) was added for uses against the
+site's *known* cream background (nav/footer/OG), since the white-padded icon would show a seam
+there; `og-image.png` keeps its ticket-6.5a composition with the new mark embedded as a data URI
+in place of the old gold-box+SVG (the box is now redundant — the new mark has its own shape/
+gradient/shadow baked in). `icon-flat-silhouette.png` deleted, not regenerated (no equivalent under
+the new source).
+
+**Replacement.** `components/logo.tsx`'s `.logo-mark` is now an `<img>`; `globals.css`'s
+`.logo-mark` stripped to a plain sizing wrapper (the drawn background/shadow are gone — the image
+supplies them). All icon URLs (both repos) gained a `?v=6.7` cache-bust query, since browsers cache
+favicons unusually aggressively. App repo: same asset set copied, **plus one bug caught proactively
+while replacing, not pre-existing** — its customer-app header sits on `bg-black`, and pointing it
+at the now-white-composited `/icon-192.png` would show a visible white square; switched that one
+call site to the transparent `/brand/mark.png` and dropped the now-unneeded `rounded-full` crop.
+
+**Verification.** Both repos `next build` clean; one disclosed `@next/next/no-img-element` lint
+warning (this codebase has never used `next/image`, confirmed by grep — introducing it as a
+one-off for a 38×38 decorative mark would be a bigger, unrequested change). Local
+screenshots: landing nav, footer, app-repo `/login` header — all correct. **Deployed and
+live-verified.** Committed `09b6e45` (marketing) / `b5c7f7a` (app), pushed, both
+`netlify deploy --prod`, live. `icon-192.png`/`og-image.png`/`brand/mark.png` MD5-match
+byte-for-byte between the local build and both live domains; `favicon.ico` fetched live and
+converted to PNG for actual visual inspection (confirms the new mark, not a stale cache).
+**Backend hotlink claim proven, not left theoretical:** the exact literal URL
+`_BRAND_ICON_URL` hardcodes now serves the new mark live — every past and future transactional
+email updates automatically, zero backend deploy needed. Zero remaining `newicon`/`nemicon`/
+`icon-flat-silhouette` references anywhere live or in either build. A legal page (`/regulamin`)
+spot-checked to confirm the nav mark updates sitewide.
+
+**Status: ✅ Deployed same session.** `design-reference/index.html`'s old inline mark left
+untouched, divergence logged in `design-reference/README.md` as PM pre-sanctioned brand-mark
+supersession.
+
+**Full evidence:** see the 6.7 row in `docs/PROGRESS.md`'s current-sprint table.

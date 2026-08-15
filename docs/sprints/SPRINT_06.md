@@ -610,4 +610,8 @@ matching the nav on `/regulamin`, `/cookie-policy`, `/dpa`; DPA table wrapper st
 confirmed out of scope — it only links out to the marketing site's legal routes, it doesn't
 render legal content of its own.
 
+**Status: ✅ ACCEPTED (PM, 2026-08-15).** "Shorthand-vs-cascade root cause excellently diagnosed
+(desktop-invisible via centering), minimal fix, real scroll-test on the DPA table. The 6.6 family
+(a–d) is complete."
+
 **Full evidence:** see the 6.6d row in `docs/PROGRESS.md`'s current-sprint table.

@@ -502,3 +502,57 @@ footer groups, and the English cookie banner together; `/terms`, `/regulamin`, a
 internally-consistent `html lang` + banner language.
 
 **Full evidence:** see the 6.6b row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.6c ("6.6b") — mobile nav overflow + footer contact email
+
+**Numbering note.** This ticket arrived labeled "6.6b", which collides with the `/dpa`/cookie-banner
+fix already shipped earlier the same session under that number (see above). Logged as **6.6c**
+instead — flagged rather than silently overwritten, same handling as ticket 6.4's original
+renumbering.
+
+**Origin:** Stakeholder screenshot, iPhone at ~390px: the trial CTA button overflows the right
+viewport edge, and the "EN" language switch renders flush against the wordmark
+("ReviewGuideEN") with no visible separation.
+
+**Root cause, both parts confirmed by reading the CSS rather than assumed.** (a) `.lang-switch`
+had **zero CSS rules defined anywhere in `globals.css`** — it was rendering as a bare `<a>`
+inheriting plain body text, not merely under-spaced. (b) Below ~480px, the full-size CTA button
+(`padding: 15px 26px`, "Wypróbuj za darmo") plus the logo and that (invisible but still
+width-consuming) pill summed wider than the viewport; `body { overflow-x: hidden }` (from ticket
+6.5) silently clipped the CTA at the edge instead of producing a scrollbar.
+
+**Fix.** `.lang-switch` given a real pill style (border, background, radius, hover), mirroring the
+footer's `.foot-cookie-btn` pattern. New `@media (max-width: 480px)` rule shrinks the CTA's
+padding/font-size **and** swaps to a shorter label ("Wypróbuj" PL, "Try free" EN) — both together,
+since either alone still left too little margin at 360px in a real render. `.nav-inner` gained a
+`gap: 12px` floor so the logo and CTA/lang-switch group can't fully touch regardless of leftover
+`justify-content: space-between` space. Safe-area insets added additively to `.wrap`
+(`max(24px, env(safe-area-inset-*))`), paired with a new `viewport-fit: cover` viewport export
+(without which `env()` resolves to 0 on every device) — scoped to horizontal insets only, since
+extending to vertical insets sitewide would change the nav's height on every device, a bigger,
+unrequested change. Sticky/scrolled state needed no separate fix: grepped the repo and confirmed
+no JS scroll-listener/class exists — the nav has one CSS state, not two.
+
+**Footer contact email.** `site-footer.tsx`'s Kontakt entry changed from anna@reviewguide.eu (the
+outreach persona's inbox) to contact@reviewguide.eu, per PM decision matching the legal documents'
+official contact address. `design-reference/index.html` left showing anna@ unchanged (pristine
+reference convention), logged as a new divergence in `design-reference/README.md`.
+
+**Grep results, both repos, as requested.** `reviewguide-marketing`: only `README.md` (updated)
+and the pristine `design-reference/index.html` (documented, left alone) still show anna@ — zero
+occurrences elsewhere. `reviewguide-app`: **zero** anna@ occurrences, and its footer in fact has
+**no Kontakt/email entry at all** — flagged rather than inventing a new section the ticket didn't
+ask for. Backend: anna@ appears only in the outreach `REPLY_ADDRESS` documentation/history —
+confirmed correct, untouched.
+
+**Verification.** `next build` clean. Interactive Playwright check (temporary install, `--no-save`,
+removed after use; `package.json`/`package-lock.json` diffs confirmed empty) at 360/390/430/820px,
+nav-top and scrolled, on `/`, `/en`, `/regulamin`: zero horizontal overflow, 12/12 checks, both
+locally and repeated against live production post-deploy.
+
+**Status: ✅ Deployed same session.** Committed `99aec09`, pushed to `main`, deployed
+(`netlify deploy --prod`, `6a80b7e1…`, live). Live-verified: overflow sweep clean on production;
+contact@reviewguide.eu present (zero anna@) on `/`, `/en`, `/terms`, `/regulamin`;
+`viewport-fit=cover` present in the served head.
+
+**Full evidence:** see the 6.6c row in `docs/PROGRESS.md`'s current-sprint table.

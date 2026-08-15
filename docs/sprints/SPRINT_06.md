@@ -556,3 +556,58 @@ contact@reviewguide.eu present (zero anna@) on `/`, `/en`, `/terms`, `/regulamin
 `viewport-fit=cover` present in the served head.
 
 **Full evidence:** see the 6.6c row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.6d — legal document pages missing mobile horizontal padding
+
+**Origin:** Stakeholder screenshot, iPhone at ~390px, of `/regulamin`: the H1 and body text sit
+flush against the left viewport edge, while the nav above keeps its correct inset — same bug
+class as 6.6c's nav overflow (a container silently losing padding the rest of the site relies
+on), one route family later.
+
+**Root cause, found by reading the cascade rather than assumed.** `components/legal-page.tsx`
+renders every legal route on a single `<div className="wrap legal-page">` — both classes on the
+same element, which should mean it inherits `.wrap`'s horizontal padding
+(`max(24px, env(safe-area-inset-*))`, from 6.6c) exactly like every landing section does. It
+never did: `.legal-page`'s own rule was a `padding` **shorthand** (`padding: 48px 0 100px`),
+which sets all four sides at once — right/left both `0`. `.legal-page` and `.wrap` are both
+plain class selectors of equal specificity, so whichever is declared later in the stylesheet
+wins the *whole* property, not per-side; `.legal-page` sits roughly 1000 lines after `.wrap`, so
+its `0` horizontal padding silently overwrote `.wrap`'s. **Why invisible until now:**
+`.legal-page` also sets `max-width: 820px; margin: 0 auto`, so on any viewport wider than 820px
+the browser's own excess width creates the *appearance* of side margins even with zero real
+padding — the bug only shows once the viewport itself drops below 820px, which mobile does and
+desktop/tablet-landscape don't. The nav was never affected since it only ever carries the single
+`.wrap` class, nothing to collide with it.
+
+**Fix — one property split, zero new selectors.** Changed `.legal-page` (base rule and its
+`@media (max-width: 640px)` override) from the `padding` shorthand to `padding-top`/
+`padding-bottom` only, so it never touches the left/right sides `.wrap` already owns. Every piece
+of "legal-adjacent chrome" the ticket named — breadcrumb, effective-date/version card, PL/EN
+toggle card, headings, `.legal-doc` body, tables — is a descendant of this one container, so all
+of it inherited the corrected inset for free; no per-component fix was made or needed. Tables
+were **already** wrapped in a scrollable `<div class="legal-doc-table-wrap">` (`lib/legal.ts`,
+built at 6.6 Part A specifically for the DPA's wide subprocessor table) with `overflow-x: auto` —
+that mechanism was correct all along and just needed the outer container's padding restored to
+read sensibly; no table-specific change was made.
+
+**Verification, local build.** `next build` clean (all 10 static routes). Playwright (temporary
+install, `--no-save`, removed after use; `package.json`/`package-lock.json` diffs confirmed
+empty) at 360/390/430px on `/regulamin`, `/cookie-policy` (EN), and `/dpa`: zero page-level
+horizontal overflow at all 9 combinations, and the H1/breadcrumb/effective-date-card/`.legal-doc`
+body all measured exactly the same left offset as the nav logo above them (24px) at every width —
+the "inset matches the landing's inset" check the ticket asked for. DPA table stress test at all
+three widths: the subprocessor table's wrapper computes `overflow-x: auto` with
+`scrollWidth (491px) > clientWidth` (290/320/360px) — genuinely needs and gets horizontal scroll
+rather than squashing — and a direct `scrollLeft` manipulation proved it actually scrolls
+(0→150px at 360px, 0→131px at 430px, clamped correctly to its own remaining overflow) while the
+page around it stayed fixed.
+
+**Status: ✅ Deployed same session.** Committed `4f20bc3`, pushed to `main`, deployed
+(`netlify deploy --prod`, live). Live-verified against `https://reviewguide.eu`: the identical
+9-combination sweep repeated against production — zero overflow, all insets still exactly 24px
+matching the nav on `/regulamin`, `/cookie-policy`, `/dpa`; DPA table wrapper still
+`overflow-x: auto` with the same scroll-needed dimensions live. `reviewguide-app` checked and
+confirmed out of scope — it only links out to the marketing site's legal routes, it doesn't
+render legal content of its own.
+
+**Full evidence:** see the 6.6d row in `docs/PROGRESS.md`'s current-sprint table.

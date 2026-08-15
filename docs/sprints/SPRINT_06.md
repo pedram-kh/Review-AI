@@ -395,3 +395,58 @@ legal links correctly point at the EN routes (`/terms`, `/privacy-policy`, `/coo
 zero "129" still holds on the PL homepage.
 
 **Full evidence:** see the 6.6 row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.6a — Footer redesign + a11y/dead-link fixes
+
+**Origin:** Stakeholder reported `/regulamin` rendering in English while the rest of the site was
+Polish. Live `curl` + a diff against the markdown source showed the page itself was correctly
+100% Polish (`<html lang="pl">`, zero English strings) — their screenshot's "Statute"/"Price-list"
+labels don't exist anywhere in this codebase, pointing to browser auto-translate rather than a
+bug. While confirming that, a follow-up footer review (asked for explicitly: "make it better using
+best practices, don't lose any data, don't do anything without confirmation") surfaced two real,
+pre-existing defects underneath the styling question.
+
+**Bug 1 — contrast.** Every item in the footer, plus the legal pages' breadcrumb/
+translation-note/PL-EN-toggle chrome, used `--muted` (`#7b8698`) at 0.82–0.94rem: **3.68:1** on
+white, under WCAG AA's 4.5:1 minimum for text that size. `reviewguide-app`'s footer had a worse
+version of the same bug (`text-zinc-400` company block = **2.56:1**).
+
+**Bug 2 — dead anchors.** The footer/nav's `#jak`/`#cennik`/`#faq` links and the shared `Logo`
+component's `#top` link are bare fragments that only resolve on the landing page itself; both
+components also render on all seven legal routes, where those ids don't exist — clicking them, or
+the logo, from any legal page did nothing.
+
+**Fix.** All footer/breadcrumb/translation-note/toggle text moved from `--muted` to `--ink-soft`
+(`#4a5568`, **7.53:1**) or darker; `--muted` untouched in its other, unaffected uses (buttons,
+eyebrows, etc.). `reviewguide-app` raised to `zinc-600`/`zinc-700` (7.7:1+) to match. A new
+`landingHref(lang)` helper (`lib/en-landing.ts`) prefixes the anchors root-relative (`/#jak`),
+falling back to `/en` once that route is live; `Logo` gained an `href` prop so callers outside the
+landing pass the qualified path. Landing-page behavior (same-document smooth scroll) unchanged.
+
+**Redesign.** `SiteFooter` restructured from a single centred row (12+ near-identical small links,
+once ticket 6.6 piled the legal/cookie/company content onto the reference's original row) into
+three labelled groups — Produkt/Kontakt/Dokumenty (EN: Product/Contact/Legal) — plus a bottom bar
+(copyright, company block on 3 readable lines, "Ustawienia cookies"/"Cookie settings" now a
+bordered pill button since it opens a dialog rather than navigating). `reviewguide-app`'s
+`Footer.tsx` restructured the same way in Tailwind so the two domains read as one product. **Zero
+content dropped** — all 15 original footer items verified present on every route, in the correct
+language. Divergence from `design-reference/index.html`'s single-row footer logged in
+`design-reference/README.md` under "Sanctioned divergences."
+
+**Process.** Built on a `footer-redesign` branch per repo; nothing committed until a local
+static-export preview (screenshotted before/after, PL/EN/legal-page, three responsive widths, both
+repos) was shown for review, per the Stakeholder's explicit hold. Both repos build and lint clean.
+
+**Status: ✅ APPROVED (PM, 2026-08-15)** — "contrast remediation (3.68→7.53:1 class),
+root-relative anchors, shared-Logo fix, and legal-chrome contrast all accepted; separable
+packaging commended." `design-reference/README.md`'s divergence entry marked SIGNED OFF (PM,
+2026-08-15). Merged `footer-redesign` → `main` (fast-forward, both repos; marketing `8fd6738`, app
+`cb39906`), pushed, deployed (`netlify deploy --prod`, both sites). **Live-verified, all four
+PM-specified checks:** production CSS confirms `--ink-soft` on `.foot-copy`/`.foot-group
+a`/`.legal-breadcrumb`; `/regulamin`'s nav+footer anchors are `href="/#jak"` etc. (no bare
+fragments left); its logo is `href="/#top"`, confirmed navigating home; all 15 PL items + PL legal
+links present on `/`, all 14 EN items + EN legal links present on `/en`; `reviewguide-app`'s
+`/signup` confirmed serving the new footer with the fixed contrast classes. All 9 marketing routes
++ `/signup` return 200 post-deploy.
+
+**Full evidence:** see the 6.6a row in `docs/PROGRESS.md`'s current-sprint table.

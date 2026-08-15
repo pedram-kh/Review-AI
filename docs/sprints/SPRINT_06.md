@@ -450,3 +450,55 @@ links present on `/`, all 14 EN items + EN legal links present on `/en`; `review
 + `/signup` return 200 post-deploy.
 
 **Full evidence:** see the 6.6a row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.6b — `/dpa` language-toggle chrome mismatch + cookie banner not localized
+
+**Origin:** Stakeholder screenshot of `/dpa` with "English" selected — the document body and meta
+bar ("Effective date"/"Version") were correctly English, but the breadcrumb above it still read
+"← Strona główna". Not a translation bug; a page-structure one.
+
+**Root cause.** `/dpa` is the one legal route published at a single URL with an inline PL/EN
+toggle (`dpa-content.tsx`), instead of two routes like the other six (e.g. `/regulamin` vs.
+`/terms`), which all go through the shared `components/legal-page.tsx` — one `lang` prop threaded
+into `SiteNav`, the breadcrumb, and `SiteFooter` together. `app/dpa/page.tsx` never used that
+shared shell: it hardcoded `<SiteNav />`/`<SiteFooter />` (both default to Polish) and a literal
+"← Strona główna" breadcrumb around `<DpaContent>`, whose own toggle only ever swapped the
+document body's two pre-rendered language trees. Clicking "English" changed the middle of the
+page while the chrome around it stayed Polish.
+
+**Fix.** Moved the whole page shell into `dpa-content.tsx`: one `lang` state now drives `SiteNav`,
+the breadcrumb ("← Strona główna" / "← Home"), the document toggle, and `SiteFooter` together —
+the same way navigating from `/regulamin` to `/terms` would. `app/dpa/page.tsx` is now a thin
+server component that loads the two `LegalDoc`s and hands them to `DpaContent`. The document body
+still dual-renders both language trees and toggles `hidden` (unchanged) — kept deliberately, since
+it's what keeps the EN translation reachable in the static HTML for crawlers even though only one
+is visible; nav/footer/breadcrumb carry no legally significant text, so a plain reactive prop swap
+was simpler and avoids duplicating `<header>`/`<footer>` landmarks in the DOM.
+
+**Second bug, same root cause, found while fixing the first.** The cookie consent banner
+(`cookie-consent-banner.tsx`) is mounted once in the root layout (`app/layout.tsx`) alongside every
+route, with no route-specific `lang` of its own — it was hardcoded Polish unconditionally,
+including on `/en`, `/terms`, `/privacy-policy`, `/cookie-policy`, and DPA's own English state.
+Fixed via a new `lib/site-lang.ts`: `announceLang(lang)` sets `<html lang>` **and** broadcasts a
+`reviewguide:lang-changed` window `CustomEvent`. `set-html-lang.tsx` (pre-existing, previously used
+only by `/en`) now calls it instead of mutating `document.documentElement.lang` directly, and is
+now also rendered by `legal-page.tsx` (so `/terms`/`/privacy-policy`/`/cookie-policy` correctly set
+`<html lang="en">`, which they never did before either) and by the rewritten `dpa-content.tsx`
+(reactively, on every toggle click). The banner subscribes to that event and picks between full
+PL/EN copy objects for every string it renders.
+
+**Verification.** Interactive click-through with a temporary `playwright` install (`--no-save`,
+removed after use; `package.json`/`package-lock.json` diffs confirmed empty both times this
+session): clicking "English" on `/dpa` flips breadcrumb, all 4 nav links, both nav CTA buttons, all
+3 footer group headings, all 4 footer legal-document links, and the cookie-settings button label in
+one action, and reverts cleanly on "Polski". Same check repeated across `/`, `/en`, `/terms`,
+`/regulamin` — `<html lang>` and the banner's rendered language agree on every route. Screenshots of
+all states shown in-chat.
+
+**Status: ✅ Deployed same session.** Committed `3a028b8`, pushed to `main`, deployed
+(`netlify deploy --prod`, `6a80b107…`, "Deploy is live!"). Live-verified against
+`https://reviewguide.eu`: `/dpa`'s English toggle state shows "← Home", the English nav, English
+footer groups, and the English cookie banner together; `/terms`, `/regulamin`, and `/en` each show
+internally-consistent `html lang` + banner language.
+
+**Full evidence:** see the 6.6b row in `docs/PROGRESS.md`'s current-sprint table.

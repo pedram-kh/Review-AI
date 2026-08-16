@@ -690,3 +690,105 @@ untouched, divergence logged in `design-reference/README.md` as PM pre-sanctione
 supersession.
 
 **Full evidence:** see the 6.7 row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.8 — customer-facing app re-theme (dark glass → cream/gold)
+
+**0. Decision log.** `ROADMAP.md`'s 2026-08-07 "Brand theme split" row got the PM's revision
+appended verbatim: "REVISED 2026-08-15: landing went cream/gold (6.5) → customer surfaces follow
+(6.8); the invariant is the seam, not the palette. /admin unchanged." Committed alone
+(`03eb8c3`), no other changes in that commit.
+
+**Context.** The 2026-08-07 decision mandated dark customer surfaces specifically to match the
+THEN-dark landing — its principle was "zero visible seam landing → signup → app," not any
+particular palette. The landing went cream/gold in 6.5; this ticket re-themes `/signup`,
+`/login`, `/auth/verify`, and `/app` to follow, so the same invariant now points at cream/gold
+instead. `/admin` is untouched by design — different audience, working fine, explicitly out of
+scope.
+
+**1. Token extraction.** `app/globals.css`'s `:root` now holds an exact copy of
+`reviewguide-marketing/app/globals.css`'s ticket-6.5 token block — same variable names
+(`--ink`/`--cream`/`--gold`/`--line`/`--shadow`/`--radius`/etc.), with a comment pointing back at
+the source file for future diffing. A second `@theme inline` block (Tailwind v4's syntax for
+referencing existing custom properties — already used one block above for the Geist font
+variable) re-registers them under `--color-*`/`--shadow-*`/`--radius-*` so the components get
+real utilities (`bg-cream`, `text-ink-soft`, `border-line`, `shadow-card-sm`, `rounded-card-lg`)
+instead of `bg-[var(--x)]` scattered everywhere. Names are suffixed (`card-sm`, not `sm`) so they
+add utilities rather than redefining Tailwind's own default `shadow-sm`/`rounded-lg`/etc. scale,
+which `/admin`'s markup also uses. Plus Jakarta Sans (next/font, `latin`+`latin-ext` — the 6.5
+diacritics lesson) loads once in `app/layout.tsx` but is scoped to a new `.customer-shell` class,
+not swapped onto `<body>`, so `/admin` keeps Geist untouched. `.btn`/`.btn-primary`/`.btn-ghost`
+are ported near-verbatim from the landing (identical var names, so it's a copy-paste);
+`.rg-card`/`.rg-input` are new shared abstractions — the landing has no single reusable "card"
+class of its own (its cards are contextual: `.review-card`, `.step`, `.price-card`, ...) — so
+this consolidates the same radius/line/shadow language for the many repeated cards in `/app`,
+disclosed as additions rather than 1:1 ports.
+
+**2. Re-theme.** `lib/theme.ts`'s `DARK_PAGE_BACKGROUND`/`DARK_GLASS_CARD`/`DARK_GLASS_NAV` were
+replaced (not left as dead exports) with `CUSTOMER_PAGE_BACKGROUND`/`CUSTOMER_NAV`/
+`CUSTOMER_CARD`, and all 8 import sites switched over — grep-confirmed zero `DARK_*` references
+remain anywhere in the repo. Every `bg-black`/`text-white`/`bg-white/NN`/`border-white/NN` in the
+customer route tree is gone. Inputs get a visible gold focus ring (`.rg-input:focus-visible`) in
+place of the old barely-there `focus:border-white/40`; checkboxes get
+`accent-[var(--gold-deep)]`; the search/URL mode toggle and tone-preference pills, and the PILNE
+urgency badge (kept red per the ticket, tuned for the light palette), all got light-palette
+treatments. `AlertsList.tsx`'s "drawers" are the existing flat `<li>` list — no grouped/
+collapsible structure exists in this component today (that pattern lives only in `/admin`'s
+`Accordion.tsx`, out of scope) — re-themed as-is, disclosed since the ticket text described it as
+"6.4's collapsible groups." No TEST badges or toasts exist anywhere in the customer route tree
+either (grep-confirmed) — nothing to re-theme there.
+
+**3. Contrast — computed, not assumed.** Full WCAG relative-luminance calc for every pair
+actually used: ink/cream 15.2:1, ink-soft/cream 7.24:1, ink/white-card 15.79:1, ink-soft/
+white-card 7.53:1, gold-ink link/white-card 5.93:1, btn-primary `#3a2600`/gold-gradient
+6.96–8.22:1. **Three pairs the landing's own token names would have produced failed outright and
+were not shipped as first drafted:** plain `--muted` on white (3.68:1, used for real body text in
+several places — replaced with `--ink-soft`, 7.53:1, reserving `--muted` for the input
+placeholder only, a disclosed exception since every field has a visible or `sr-only` label);
+`text-white` on the active gold-deep toggle pill (2.07:1 — replaced with the same `#3a2600`
+btn-primary uses on gold, 6.96:1); and `var(--rose)`/`var(--green)` used directly as error/
+success banner text on their own `-soft` backgrounds (2.44:1 / 2.34:1 — the landing itself never
+does this; its own `.badge` success pill hardcodes `#0e7a4a` rather than `var(--green)` for
+exactly this reason). Added `--rose-ink: #b3261e` / `--green-ink: #0e7a4a` following the same
+`--gold`/`--gold-ink` pairing convention already in the token set: 5.75:1/6.54:1 and 4.89:1/
+5.38:1. PILNE badge: `#b3261e` on a soft-red `#ffe0e0` chip, 5.29:1. Every checked pair is
+≥4.5:1 except the disclosed placeholder exception.
+
+**4. Functional invariants.** CSS/markup only — zero route, prop, state, or fetch-call changes in
+any of the 8 touched files (diffed to confirm). All 20 local Playwright tests pass with zero
+selector changes (`admin-runs.spec.ts` ×4, `customer-panel.spec.ts` ×3,
+`verify-interstitial.spec.ts` ×3, across desktop+mobile-chromium) — none assert on color
+classNames for customer surfaces, so the retheme was invisible to the suite by construction.
+Key-leak grep re-run against the fresh production `.next/` output for the three server-only
+secret env var names (`ADMIN_API_KEY`/`AUTH_JWT_SECRET`/`ADMIN_PASS`): zero matches in
+`.next/static` (the actual client bundle); the only hits are in `.next/server` (expected) and the
+Turbopack build cache (never shipped). `npm run lint`/`next build`/`tsc` all clean.
+
+**5. Screenshots + seam check.** 390px and 1440px captures of `/login`, `/signup` (both
+checkboxes visible), the `/auth/verify` interstitial, `/app` connected (place card + one urgent
+and one normal alert drawer) and `/app` empty (no restaurant connected yet), rendered locally
+against the Playwright suite's stub backend. Side-by-side against a fresh screenshot of the live
+`reviewguide.eu` hero: identical wordmark/mark, identical nav treatment, identical gold CTA
+gradient and Plus Jakarta Sans weight — zero visible seam clicking "Wypróbuj za darmo" into a
+cream/gold `/signup`.
+
+**6. Deploy + live verification.** Committed `fff9459`, pushed to `main`,
+`netlify deploy --prod --build` → live. `curl https://app.reviewguide.eu/{login,signup}` both
+serve `bg-cream`/`customer-shell`/`btn-primary` in the HTML (the new classes actually shipped);
+a fresh Playwright screenshot of the live `/login` matches the local one pixel-for-pixel in
+layout. **Behind-auth `/app` verified against the real production API**, not a stub: pulled the
+production `AUTH_JWT_SECRET` from Netlify's production context, ran a local `next start` build
+(same commit as deployed) pointed at the live App Runner `BACKEND_URL`, and minted a session for
+customer 14 — the Stakeholder's own pre-flagged (`is_test=true`) walkthrough account from 5.3's
+"who is Customer 14?" investigation; read-only `GET`s only, nothing mutated. Rendered the real
+connected restaurant (Istanbul Kitchen, San Leandro), real `trialing` subscription status, and
+its real alert history, all in the new theme, "Zarządzaj subskrypcją" correctly shown instead of
+the trial-start form since it's already subscribed. Confirms the retheme survives real backend
+response shapes, not just the Playwright fixtures.
+
+**Status: 🧪 Pending PM review.** Disclosed judgment calls: the `DARK_*` token replacement
+instead of a parallel/dead set; the two new `.rg-card`/`.rg-input` shared classes (not 1:1 ports
+of anything in the landing); the muted/rose/green text-color substitutions made for AA
+compliance where the landing's own tokens would have failed; `AlertsList.tsx`'s described-vs-
+actual "collapsible drawers" structure (flat list, unchanged).
+
+**Full evidence:** see the 6.8 row in `docs/PROGRESS.md`'s current-sprint table.

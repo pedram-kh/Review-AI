@@ -37,7 +37,7 @@ pointed at paying customers' profiles.
 | Frontend hosting | **Netlify free tier** (both frontends) | marketing = static export → zero runtime issues |
 | Framework | **Next.js + React** (both frontends) | Cursor strongest here |
 | Auth | Magic link (app repo, Sprint 4) | Restaurant owners forget passwords |
-| Billing | **Stripe** Checkout + Customer Portal | 14-day trial, **card required upfront**, auto-converts day 14. **39 zł netto/mo + VAT** (G3 rev. 2026-08-14) |
+| Billing | **Stripe LIVE** Checkout + Customer Portal (6.10 — cut over from the sandbox account 2026-08-16) | 14-day trial, **card required upfront**, auto-converts day 14. **39 zł netto/mo + VAT** (G3 rev. 2026-08-14). Live account `acct_1U3I6iGV5v11Dm1D`, price `price_1U4wX9GV5v11Dm1DQHFmhfmz`. **Stripe Tax still `pending`** in the new account — gross-total display at checkout depends on it |
 | Email delivery | **Postmark** (subdomain sender, e.g. mail.domain.pl) | Deliverability is a product feature |
 
 **Repo map:** `backend` (FastAPI, this docs folder lives here) · `app` (Next.js: customer panel + /admin) · `marketing` (Next.js static landing). Docs stay in `backend/docs/` as the single source; other repos link to it.

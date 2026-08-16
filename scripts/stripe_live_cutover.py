@@ -131,7 +131,10 @@ def main() -> None:
     stripe.api_key = load_live_key()
 
     account = stripe.Account.retrieve()
-    account_name = account.get("business_profile", {}).get("name") or "unnamed"
+    # StripeObject subclasses dict but proxies attribute access, so `.get` resolves to a missing
+    # API field rather than dict.get — index it instead.
+    profile = account["business_profile"] if "business_profile" in account else None
+    account_name = (profile and profile["name"]) or "unnamed"
     print(f"Account:   {account.id} ({account_name})")
     print(f"Plan-only: {not args.apply}\n")
 

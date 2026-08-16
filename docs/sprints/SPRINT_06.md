@@ -950,7 +950,22 @@ commands shown and approved before execution.
    afterwards (`WORKFLOW.md` §4's convention), so customers 13/14 stay clean after step 4 rather
    than being re-dirtied by the verification itself.
 
-**Status: 🚧 in progress — blocked on the Stakeholder's `sk_live_` key.** Handoff file created at
+**Two findings that changed step 4, raised before any write (both approved by the Stakeholder):**
+
+- **"Set `subscription_status='none'`" and "polled as before" are mutually exclusive.**
+  `poll_customers.py`'s `ELIGIBLE_STATUSES = ("trialing", "active")` gates the poller, so `'none'`
+  removes a customer from it entirely. Resolution: null `stripe_customer_id` only and leave the
+  status alone — that kills the dead-ID risk (the sole live breakage was the portal link) while
+  keeping poll-eligibility at 5.
+- **Five customers carried old-sandbox Stripe IDs, not the two the ticket named** (13, 14, 16, 18,
+  19 — all `trialing`), and **18/19 were `is_test=false`** despite being the Stakeholder's own
+  accounts, the same mis-flag ticket 6.2 fixed for customer 16 (customer 19 had accrued 166 alerts
+  as a nominally "real" account). All five cleared; 18/19 flagged; metric back to 0 real / 5 test.
+
+**Status: 🧪 delivered, one Stakeholder action outstanding.** Config cutover complete and verified;
+**Stripe Tax reads `pending` in the new account**, which is this ticket's own declared stop
+condition — the Stakeholder activates it in the dashboard, then the gross-total-at-checkout
+assertion can be re-run and the full-loop walkthrough done. Handoff file created at
 `.env.stripe-live` (gitignored, verified via `git check-ignore`). Full command plan (Rule 6)
 presented and approved. Both execution scripts written, linted, and reviewable before they run:
 `scripts/stripe_live_cutover.py` (creates product/price/webhook in the new account; idempotent;
@@ -959,3 +974,33 @@ presented and approved. Both execution scripts written, linted, and reviewable b
 unchanged, rewrites the two secret values + the price env var, waits for `RUNNING`). The guard was
 confirmed working: running the first script today aborts with "the live key has not been pasted
 yet".
+
+**Executed, in order, 2026-08-16:**
+
+1. **New-account objects** in `acct_1U3I6iGV5v11Dm1D` ("Review Guide"), which the plan-only pass
+   confirmed was empty beforehand: product `prod_V56kn54lhzOMhw`, price
+   `price_1U4wX9GV5v11Dm1DQHFmhfmz` (3900 PLN/month, `tax_behavior=exclusive`), webhook
+   `we_1U4wX9GV5v11Dm1DaUSNGQHw` on the three `customer.subscription.*` events. **Idempotency
+   proven rather than claimed:** a second `--apply` created nothing and reported REUSE on all three.
+2. **Secrets swap.** `STRIPE_SECRET_KEY` sk_test→sk_live, `STRIPE_WEBHOOK_SECRET` rotated,
+   `STRIPE_PRICE_ID` `price_1U4Dsk…`→`price_1U4wX9…`, all 9 secret keys asserted preserved.
+   Deployment reached `RUNNING`; `/health` → `{"status":"ok","db":"ok"}`.
+3. **Hygiene** (via the SSM bastion, RDS being private): 5 rows' `stripe_customer_id` nulled,
+   `is_test=true` set on 18/19, poll-eligible verified still 5 before and after.
+4. **Verification 5a — checkout:** `livemode=true`, price `price_1U4wX9GV5v11Dm1DQHFmhfmz`,
+   3900 pln, monthly, `tax_behavior=exclusive`, `automatic_tax.enabled=true`. Session expired and
+   the Stripe Customer + throwaway DB row deleted afterwards. `automatic_tax.status` came back
+   `requires_location_inputs`, and `stripe.tax.Settings.retrieve()` reports **`status: pending`** —
+   Stripe Tax is not activated yet, so the gross total cannot compute. Stopped here as instructed.
+5. **Verification 5b — webhook: PASS.** Signed event accepted (200, status→`active`); identical
+   event replayed → 200 with unchanged state (idempotent); transition to `past_due` applied;
+   **forged signature rejected 400** with DB state untouched. Throwaway row deleted.
+6. **Old sandbox account** `acct_1U1g73IDs1qO8e1T`: webhook `we_1U1guhIDs1qO8e1TpvmiPCPs`
+   **disabled**, so its now-unverifiable events stop hitting production.
+7. **Sweep.** Fresh production builds of both frontends: **zero** matches for
+   `sk_live_`/`sk_test_`/`whsec_`/`pk_*` and zero for the superseded price id, in `.next/static`,
+   the whole `.next`, and marketing's `out/` — with a positive control confirming the grep actually
+   reaches those directories. `ROADMAP.md`'s billing stack row → Stripe LIVE (6.10).
+
+**Not done, deliberately:** no real subscription completed — that is the Stakeholder's walkthrough
+with his own card, and it is gated on Stripe Tax activation anyway.

@@ -795,3 +795,57 @@ landing's own tokens would have failed; `AlertsList.tsx`'s described-vs-actual "
 drawers" structure (flat list, unchanged — group only if alert volume ever demands it).
 
 **Full evidence:** see the 6.8 row in `docs/PROGRESS.md`'s current-sprint table.
+
+## 6.9 — Customer panel restructure (Stakeholder UX design + PM refinements)
+
+**Origin:** Stakeholder UX design + PM refinements, 2026-08-16. Customer surfaces only
+(`/app` and its layout); `/admin/*` explicitly untouched. The panel was re-themed cream/gold in
+6.8 using the landing's token block in `app/globals.css` — build on those tokens; panel copy is
+POLISH.
+
+**Scope, as specified:**
+
+1. **HEADER/NAV:** sticky header consistent with the landing's language (logo left). Right side:
+   mobile (≤768px) = hamburger → slide-over drawer; desktop = account button (circle with the
+   account email's first letter) → dropdown. Menu contents (identical both variants): account
+   email display-only at top, Ustawienia (→ settings tab), Zarządzaj subskrypcją (the existing
+   Stripe portal link), Wyloguj. Accessibility: focus trap, Esc closes, aria-expanded.
+2. **REMOVE** the "Logged in as" card entirely. Its data relocates: email → menu top; subscription
+   status → a status chip on the restaurant card ("Okres próbny" / "Aktywna" per
+   `subscription_status`); Manage-subscription + Logout live in the menu only.
+3. **RESTAURANT CARD** becomes the hero (invest the polish here): restaurant name prominent,
+   address, ★ rating, the status chip, and a "monitoring aktywny · ostatnie sprawdzenie:
+   \<time\>" line with a subtle pulsing dot. Cream/gold tokens throughout.
+4. **TABS** below the hero card: Najnowsze | Historia | Ustawienia — URL-synced (`?tab=` or hash)
+   so refresh and deep links work.
+   - **Najnowsze** (default): alerts from the most recent poll run/day that PRODUCED alerts
+     (skip empty checks); PILNE first, then by time. Proper empty state if none ever.
+   - **Historia:** table, one row per day: date · liczba opinii · PILNE count (red when >0) ·
+     średnia ★. Row click expands inline to that day's full review+response cards (reuse
+     existing card/drawer components). The tab itself shows a small red count chip if any
+     PILNE exists in the last 7 days.
+   - **Ustawienia:** the current settings content (notification email, tone preference, save) +
+     the Zarządzaj subskrypcją link; the old standalone settings card is removed.
+5. **COPY BUTTONS** (all of them in `/app`): gold primary style; on successful copy → green
+   background + "Skopiowano ✓" for ~2s, then revert.
+6. **INVARIANTS:** client-side restructure only — no backend/API changes (group alerts
+   client-side; current per-customer volumes make that fine — flag if you find otherwise).
+   Contrast discipline from 6.8: compute the text/background ratios for every NEW pair
+   (tabs, chips, menu, green copied-state) and include the table in your report; ≥4.5:1.
+   Playwright: existing tests pass (selector-only updates disclosed) + new specs: menu
+   open/close both variants, tab switching + URL sync, copy-state flip, Historia row expand.
+   Key-leak grep on the fresh production build (established check — no secret names in
+   `.next/static`).
+7. **VERIFY + REPORT:** screenshots at 390 and 1440 px — header with menu open (both variants),
+   hero card, each tab, Historia expanded, copy button in both states. Deploy, live-verify
+   `/login`/`/app` serving the new structure (for behind-auth pages use the established pattern:
+   run the deployed build locally against the live backend API read-only — do NOT probe
+   Netlify's `ADMIN_PASS`). Report for PM review with the contrast table and any disclosed
+   calls. The PM verdict arrives via the Stakeholder; hold the PROGRESS row at 🧪 until then.
+
+**Status: 🧪 Ready for PM review.** App `d8a7727` deployed (`netlify deploy --prod --build`,
+`6a8120c5ee37eea2d790c571`). Playwright 28/28 local (2 skipped live-login). Behind-auth `/app`
+verified against the live backend as customer 14, read-only. Contrast table and disclosed
+judgment calls are in the PROGRESS.md row.
+
+**Full evidence:** see the 6.9 row in `docs/PROGRESS.md`'s current-sprint table.

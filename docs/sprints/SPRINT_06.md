@@ -895,10 +895,14 @@ per PM direction rather than as its own sprint entry.
 4. **VERIFY + REPORT:** real 390px context, screenshots (drawer open over content, settings tab
    active after menu click), deploy, live-verify, report.
 
-**Status: 🧪 fixed, tested, deployed — awaiting Stakeholder re-verification.** App `9fd6791`
-deployed (`netlify deploy --prod --build`, `6a813937563075e728f70080`), live at
+**Status: ✅ ACCEPTED (PM, 2026-08-16), contingent on the Stakeholder's live phone re-test.**
+PM verdict: "containing-block root cause (backdrop-blur vs position:fixed) measured before
+fixing, portal solution structural not cosmetic, reactive tab state matching house pattern,
+revert-proof test discipline. 6.9 family complete." App `9fd6791` deployed
+(`netlify deploy --prod --build`, `6a813937563075e728f70080`), live at
 https://app.reviewguide.eu. Root cause, fix, and full verification evidence (incl. a proven
 regression check — 2 of 3 new specs demonstrated to fail against the pre-fix code, then pass
-restored) are in the 6.9 row of `docs/PROGRESS.md`'s current-sprint table.
+restored) are in the 6.9 row of `docs/PROGRESS.md`'s current-sprint table. The Stakeholder's
+own live-phone confirmation is what finally closes the 6.9 family out.
 
 **Full evidence:** see the 6.9 row in `docs/PROGRESS.md`'s current-sprint table.

@@ -22,6 +22,7 @@
 | English/international version | — | Far future |
 | Serious-allegation flag: extend §2-style gating beyond health to crime/theft/harassment/discrimination keyword classes — leads with such reviews never auto-queue | Lead 76 (Mezza Lounge & Bar), 2026-08-09 | Sprint 6 |
 | `/health` returns the git commit sha — deploy evidence today is "the push and the deploy timestamps line up", not a direct read from the running process | Ticket 5.8 deploy verification, 2026-08-09 | Sprint 6 |
+| Customer alerts pagination — Historia goes stale past `ALERTS_LIST_LIMIT=30`; add paging/load-more before any real customer approaches 30 stored alerts | Ticket 6.9 volume flag, 2026-08-16 | Before any customer nears the 30-alert cap |
 
 ## How to add
 

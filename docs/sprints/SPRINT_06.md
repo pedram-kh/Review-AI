@@ -146,6 +146,25 @@ instant. Two render sites: `AlertsList.tsx` (`alert.review_date ?? alert.created
 **Done when:** the deployed `/app` loads with **zero** console errors, the timestamps still read as
 Warsaw local time, and the new test fails if `timeZone` is removed.
 
+**Status: ✅ CLOSED (PM, 2026-08-16)** — "fixed via 6.9's pin + test." Ticket 6.9 shipped the
+`timeZone: "Europe/Warsaw"` pin on `formatDateTimePl`/`formatDatePl` (the pl-PL customer pair) as a
+byproduct of its own Warsaw-day bucketing (same root cause, same fix, disclosed there as an
+overlap), but that left this ticket's scope item 2 open. **Checked item 2 and it was live:** the
+en-GB `/admin` pair, `formatDate`/`formatDateTime`, had the identical no-`timeZone` defect and are
+called from "use client" components (`ReplyRow.tsx`'s `formatDateTime`, `LeadDetailClient.tsx`'s
+`formatDate`) — same hydration-mismatch exposure as the customer pair, just not yet observed
+because no console listener had been attached there. Pinned both to Warsaw as well (en-GB output is
+locale, not zone — `formatDate` still reads e.g. "16 Aug 2026"). Added `lib/format.test.ts`
+(`node --test`, no new dependency — Node 24's native TS type-stripping runs `.ts` directly): spoofs
+`TZ=America/Los_Angeles` before any Date/Intl call and asserts all four formatters' Warsaw-local
+output at an instant chosen to cross both the hour and the calendar day between the two zones, so a
+dropped pin fails immediately, on either the string or the day-key assertion. Verified the test
+actually catches the regression (not just that it passes today) by temporarily stripping the
+`timeZone` option from the pl-PL pair and confirming 2 of 4 assertions failed with the LA-shifted
+strings, then restoring and confirming `git diff` was empty before committing. Full Playwright suite
+(28/28, 2 skipped as established) still passes, including `admin-runs.spec.ts`'s one hardcoded
+date-string assertion. Full evidence in the 6.3 row of `docs/PROGRESS.md`'s current-sprint table.
+
 ---
 
 ## 6.4 — Polling v2: batched alerts, adaptive fetch, run observability
@@ -843,9 +862,11 @@ POLISH.
    Netlify's `ADMIN_PASS`). Report for PM review with the contrast table and any disclosed
    calls. The PM verdict arrives via the Stakeholder; hold the PROGRESS row at 🧪 until then.
 
-**Status: 🧪 Ready for PM review.** App `d8a7727` deployed (`netlify deploy --prod --build`,
+**Status: ✅ ACCEPTED (PM, 2026-08-16).** App `d8a7727` deployed (`netlify deploy --prod --build`,
 `6a8120c5ee37eea2d790c571`). Playwright 28/28 local (2 skipped live-login). Behind-auth `/app`
 verified against the live backend as customer 14, read-only. Contrast table and disclosed
-judgment calls are in the PROGRESS.md row.
+judgment calls are in the PROGRESS.md row. PM verdict: "contrast discipline exemplary (incl. the
+rejected white/green pair), trial-start consent relocation legally correct, day-bucket grouping
+and all disclosed calls approved."
 
 **Full evidence:** see the 6.9 row in `docs/PROGRESS.md`'s current-sprint table.

@@ -15,6 +15,12 @@ venv/
 
 # Env / secrets
 .env
+# Ticket 6.10 — Stakeholder pastes the new live account's sk_live_ key here; read by the
+# cutover commands, never echoed, never committed.
+.env.stripe-live
+# Ticket 6.10 — pre-write snapshots of Secrets Manager / App Runner config (rollback material).
+# Contains live secret values by definition; kept local, chmod 600, shredded after acceptance.
+.cutover-snapshots/
 
 # OS
 .DS_Store

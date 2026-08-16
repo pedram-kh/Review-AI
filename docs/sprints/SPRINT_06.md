@@ -906,3 +906,56 @@ restored) are in the 6.9 row of `docs/PROGRESS.md`'s current-sprint table. The S
 own live-phone confirmation is what finally closes the 6.9 family out.
 
 **Full evidence:** see the 6.9 row in `docs/PROGRESS.md`'s current-sprint table.
+
+---
+
+## 6.10 — Stripe cutover: sandbox → live account (new, Stakeholder-owned)
+
+**Origin:** Stakeholder/PM ticket, 2026-08-16. Rule 6 applies to every AWS/Stripe mutation —
+commands shown and approved before execution.
+
+**Scope, as specified:**
+
+1. **KEY HANDOFF.** Name a local gitignored file for the Stakeholder to paste the `sk_live_` key
+   into; read from there, never echo (established pattern).
+2. **NEW-ACCOUNT OBJECTS via API** (idempotent, like 4.3): product "ReviewGuide" + price
+   39.00 PLN monthly, `tax_behavior=exclusive` → capture the new price id. Webhook endpoint →
+   `https://<backend>/api/billing/webhook` with the same three `customer.subscription.*` events →
+   capture the new signing secret.
+3. **SECRETS SWAP** (App Runner via Secrets Manager, snapshot-first, preserve everything):
+   `STRIPE_SECRET_KEY` → live key, `STRIPE_WEBHOOK_SECRET` → new secret, `STRIPE_PRICE_ID` → new
+   live price id. Deploy, wait RUNNING, `/health` green.
+4. **TEST-DATA HYGIENE.** Customers 13/14 carry `stripe_customer_id` + `subscription_status` from
+   the OLD test account. Set `subscription_status='none'`, null `stripe_customer_id`, mark them as
+   "old sandbox account, cleared at 6.10", so nothing tries to bill or portal-link against dead
+   IDs. They stay `is_test` + polled as before.
+5. **VERIFICATION (live mode — real cards only now).** (a) Checkout session creation:
+   `livemode=true`, price correct, `automatic_tax` active — if Stripe Tax isn't activated in the
+   dashboard this FAILS here; stop and tell the Stakeholder. (b) Webhook: signed test event from
+   the live account → signature accepted + handler idempotent. (c) Do NOT complete a real
+   subscription — the full loop is the Stakeholder's walkthrough with his own card; hand him the
+   exact steps.
+6. **SWEEP + DOCS.** Grep both frontends' builds for old `pk_`/`price_` references (there should
+   be no client-side Stripe keys at all — confirm); ROADMAP stack row → Stripe LIVE (6.10).
+
+**Three decisions taken by the Stakeholder before execution (2026-08-16):**
+
+1. **`notes`-marking → docs only.** `customers` has no `notes` column (only `leads` does), so the
+   ticket's "notes-marked" instruction had no column to write to. Recorded in `PROGRESS.md` +
+   this file rather than adding a migration for a comment.
+2. **Old sandbox webhook endpoint → disabled** in the old account. It points at the production URL
+   and would start failing signature verification the moment the secret rotates; disabling stops
+   the 400 noise and is reversible.
+3. **Verification customer → a throwaway `is_test=true` row**, created via the tunnel and deleted
+   afterwards (`WORKFLOW.md` §4's convention), so customers 13/14 stay clean after step 4 rather
+   than being re-dirtied by the verification itself.
+
+**Status: 🚧 in progress — blocked on the Stakeholder's `sk_live_` key.** Handoff file created at
+`.env.stripe-live` (gitignored, verified via `git check-ignore`). Full command plan (Rule 6)
+presented and approved. Both execution scripts written, linted, and reviewable before they run:
+`scripts/stripe_live_cutover.py` (creates product/price/webhook in the new account; idempotent;
+`--apply` required, plan-only by default; refuses any key not starting `sk_live_`) and
+`scripts/stripe_live_apprunner_swap.py` (snapshots both stores, asserts the secret's key set is
+unchanged, rewrites the two secret values + the price env var, waits for `RUNNING`). The guard was
+confirmed working: running the first script today aborts with "the live key has not been pasted
+yet".

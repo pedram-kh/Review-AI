@@ -785,10 +785,13 @@ its real alert history, all in the new theme, "Zarządzaj subskrypcją" correctl
 the trial-start form since it's already subscribed. Confirms the retheme survives real backend
 response shapes, not just the Playwright fixtures.
 
-**Status: 🧪 Pending PM review.** Disclosed judgment calls: the `DARK_*` token replacement
-instead of a parallel/dead set; the two new `.rg-card`/`.rg-input` shared classes (not 1:1 ports
-of anything in the landing); the muted/rose/green text-color substitutions made for AA
-compliance where the landing's own tokens would have failed; `AlertsList.tsx`'s described-vs-
-actual "collapsible drawers" structure (flat list, unchanged).
+**Status: ✅ ACCEPTED (PM, 2026-08-15)** — "preemptive contrast fixes (3 pairs caught pre-ship),
+`.customer-shell` scoping, zero-behavior-change proof via untouched Playwright suite, and all
+disclosed judgment calls approved (flat AlertsList accepted — group only if volume ever
+demands)." Disclosed judgment calls, all approved: the `DARK_*` token replacement instead of a
+parallel/dead set; the two new `.rg-card`/`.rg-input` shared classes (not 1:1 ports of anything
+in the landing); the muted/rose/green text-color substitutions made for AA compliance where the
+landing's own tokens would have failed; `AlertsList.tsx`'s described-vs-actual "collapsible
+drawers" structure (flat list, unchanged — group only if alert volume ever demands it).
 
 **Full evidence:** see the 6.8 row in `docs/PROGRESS.md`'s current-sprint table.

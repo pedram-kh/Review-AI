@@ -72,13 +72,19 @@ badge rendering. Screenshot-verify all states. Update row 5.3.
 
 **Done when:** two Postmark templates in code (from alerts@mail.reviewguide.eu, sender name "ReviewGuide"): (a) **alert** — subject "Nowa opinia (X★) — gotowa odpowiedź" / urgent: "PILNE: Nowa opinia 1★ — odpowiedz dziś", body: the review, the draft in a copy-friendly block, one-line paste instruction, link to /app, health-flag warning line when applicable; (b) **welcome digest** — "Twoje odpowiedzi są gotowe" with up to 10 day-one drafts. Plain-text alternative parts included (deliverability). Both promise-wording compliant ("maks. 2 godzin" if mentioned at all). Landing copy: update the "w ciągu godziny" claim to match LOGIC §8a wording, redeploy marketing.
 
+> **Reconciled 2026-08-15 (PM), ticket 6.7:** the "no external images" line below was superseded by
+> ticket 6.2, which added one hotlinked brand-icon `<img>` to both HTML templates — a reversal
+> disclosed at the time in `app/templates.py`'s own module docstring, but never reflected back into
+> this spec text until now. See the amended wording and the changelog entry in `docs/LOGIC.md`.
+
 **Cursor prompt:**
 ```
 Ticket 5.4 per spec. Templates as code constants (PL, PM-reviewable in the repo), HTML +
-plain-text parts, no external images (deliverability), copy block styled for easy select-all on
-mobile. Landing: fix the hour-promise wording per LOGIC §8a and redeploy reviewguide-marketing.
-Send both template types to pedram@reviewguide.eu as live proofs. Update row 5.4; PM reviews
-the rendered emails before 5.5.
+plain-text parts. Single hotlinked brand mark from reviewguide.eu permitted; no other external
+images (deliverability); plaintext part remains image-free. Copy block styled for easy
+select-all on mobile. Landing: fix the hour-promise wording per LOGIC §8a and redeploy
+reviewguide-marketing. Send both template types to pedram@reviewguide.eu as live proofs. Update
+row 5.4; PM reviews the rendered emails before 5.5.
 ```
 
 ## Ticket 5.5 — Milestone: the product works end-to-end

@@ -871,4 +871,34 @@ judgment calls are in the PROGRESS.md row. PM verdict: "contrast discipline exem
 rejected white/green pair), trial-start consent relocation legally correct, day-bucket grouping
 and all disclosed calls approved."
 
+---
+
+## 6.9a — Two mobile bugs from the Stakeholder's live phone test of 6.9
+
+**Origin:** Stakeholder's live-phone retest of the just-accepted 6.9, 2026-08-16. Logged under 6.9
+per PM direction rather than as its own sprint entry.
+
+**Scope, as specified:**
+
+1. **BUG 1 — hamburger drawer broken + transparent** on mobile: the slide-over rendered with a
+   transparent background (content behind bled through) and misbehaved. Investigate open/close/
+   tap handling, not just styling. Fix: solid cream/white panel, dimmed backdrop that closes on
+   tap, drawer above the header (z-index), body scroll-lock while open, smooth open/close.
+   Re-verify focus-trap/Esc still work after the fix.
+2. **BUG 2 — menu "Ustawienia" doesn't select the settings tab**: clicking it (either menu
+   variant) must navigate/sync to `?tab=ustawienia`, actually activate the tab (state must react
+   to URL changes, not only clicks), and close the menu. Verify browser back/forward also
+   switches tabs.
+3. **TESTS:** extend Playwright — mobile drawer opens solid (assert computed background not
+   transparent + backdrop present), Ustawienia-from-menu activates the tab (both variants,
+   mobile + desktop), back/forward tab navigation. Run the full suite.
+4. **VERIFY + REPORT:** real 390px context, screenshots (drawer open over content, settings tab
+   active after menu click), deploy, live-verify, report.
+
+**Status: 🧪 fixed, tested, deployed — awaiting Stakeholder re-verification.** App `9fd6791`
+deployed (`netlify deploy --prod --build`, `6a813937563075e728f70080`), live at
+https://app.reviewguide.eu. Root cause, fix, and full verification evidence (incl. a proven
+regression check — 2 of 3 new specs demonstrated to fail against the pre-fix code, then pass
+restored) are in the 6.9 row of `docs/PROGRESS.md`'s current-sprint table.
+
 **Full evidence:** see the 6.9 row in `docs/PROGRESS.md`'s current-sprint table.

@@ -163,7 +163,9 @@ actually catches the regression (not just that it passes today) by temporarily s
 `timeZone` option from the pl-PL pair and confirming 2 of 4 assertions failed with the LA-shifted
 strings, then restoring and confirming `git diff` was empty before committing. Full Playwright suite
 (28/28, 2 skipped as established) still passes, including `admin-runs.spec.ts`'s one hardcoded
-date-string assertion. Full evidence in the 6.3 row of `docs/PROGRESS.md`'s current-sprint table.
+date-string assertion. App `38c7321` deployed (`netlify deploy --prod --build`,
+`6a813118c5eb6ac169225947`), live at https://app.reviewguide.eu. Full evidence in the 6.3 row of
+`docs/PROGRESS.md`'s current-sprint table.
 
 ---
 

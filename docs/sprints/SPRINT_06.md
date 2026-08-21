@@ -1454,4 +1454,44 @@ feedback items 11+12, ticket 6.17).
 
 ### Deploy + live verification
 
-*(filled in after push/deploy below)*
+**Backend** pushed (`39813b8`) — App Runner `START_DEPLOYMENT` → `SUCCEEDED`, `GET /health` on the
+live service returns `{"status":"ok","db":"ok"}`. **App repo** pushed (`78a04a9`) and deployed via
+`netlify deploy --prod --build` — deploy live at `app.reviewguide.eu` (first attempt hit a stale
+`.next/` build-manifest collision from a concurrent local build; `rm -rf .next` and retried clean,
+disclosed rather than silently rerun).
+
+**Live proof of the actual gate**, over the bastion tunnel, against the **real deployed backend**
+(not a local server) — the ticket's explicit ask: "a throwaway connect-without-pay scenario should
+produce nothing." Inserted a throwaway `is_test=true` customer (id 27, `subscription_status`
+defaulting to `none` — the real-world default for a brand-new signup that has never touched
+Stripe), minted a session JWT with the live `AUTH_JWT_SECRET` (pulled from the same Secrets Manager
+bundle as ticket CR-1's live verification, not assumed to match local), and called
+**`POST https://ytjgivwddf.eu-west-1.awsapprunner.com/api/customer/connect-place`** directly:
+
+```
+{"place_id":"6.17-throwaway-place-no-pay","name":"Throwaway Connect-Without-Pay Test","day_one_started":false}
+HTTP 202
+```
+
+**202 — connection succeeds** (per ticket 6.1's "connect and day-one are separate concerns," now
+correctly extended), but **`day_one_started: false`**. Confirmed against the DB directly, not just
+the response: `place_id`/`connected_at` are set, but `day_one_started_at`, `day_one_finished_at`,
+`day_one_result` are all `NULL`, and `SELECT count(*) FROM alerts WHERE customer_id = 27` returns
+**0** — literally zero day-one drafts, zero digest emails, matching item 4's "connect-without-
+subscription → zero day-one drafts and zero emails" test requirement, live rather than only in the
+suite. `GET /api/customer/state` on the same live backend reads back `"day_one":{"status":
+"not_started","summary":null}` — the exact reading the panel's hero/CTA logic keys off. Throwaway
+customer 27 deleted after verification (same hygiene as every prior live-verification ticket); the
+bastion tunnel closed afterward.
+
+The webhook-triggered half (connect-then-pay order, double-webhook idempotency) was **not**
+re-verified against a real live Stripe event this session — faking a validly-signed
+`customer.subscription.created` webhook against the live endpoint would require either a real
+Stripe test-mode subscription lifecycle (the CR-1-style verification) or bypassing signature
+verification, and the ticket's own live-verify ask was specifically the connect-without-pay gate
+above; that half is covered by 4 dedicated integration tests in `tests/test_billing.py`
+(starts-once, no-place-no-op, replay-no-double-run, later-event-no-restart) plus the direct
+`claim_day_one_start` unit tests in `tests/test_day_one.py`, all passing. Flagging the narrower
+scope here rather than presenting it as fully live-verified.
+
+**PROGRESS row:** pending PM review — see `docs/PROGRESS.md`.

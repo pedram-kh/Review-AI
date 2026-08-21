@@ -1004,3 +1004,65 @@ yet".
 
 **Not done, deliberately:** no real subscription completed — that is the Stakeholder's walkthrough
 with his own card, and it is gated on Stripe Tax activation anyway.
+
+---
+
+## 6.14 — Landing copy revisions (Partner feedback 17.08, Stakeholder+PM decisions)
+
+**Origin:** Partner feedback 2026-08-17 on the live `reviewguide.eu` landing, reduced to seven exact
+text replacements by Stakeholder + PM decision (one of the seven — the "we write the response" step
+body — is a PM amendment, not the raw partner wording: it drops "AI" in favor of "ReviewGuide" and
+removes the trailing "bez szablonowego tonu" clause). Work happens entirely in
+`reviewguide-marketing`; this repo's `docs/` only logs the ticket.
+
+**Scope, as specified:** apply the seven PL replacements (hero headline, hero sub-lead,
+how-it-works heading, step 1 body, step 2 body (PM-amended), examples-section caption, footer
+tagline), then mirror equivalent edits on `/en` with faithful translations of the same meaning
+change. Sweep the whole marketing site for the two removed phrases
+("zanim zdążysz się zdenerwować", "w ciągu maksymalnie 2 godzin") beyond the seven named strings and
+align every occurrence found with the new voice — `docs/LOGIC.md`'s real 2h operational promise and
+the backend's transactional email templates are explicitly out of scope (this is marketing voice
+only, the operational promise stays true and documented). `design-reference/index.html` stays
+pristine; any copy divergence gets logged in `design-reference/README.md`, not applied to the
+reference file. `reviewguide-app` is checked for the same two removed phrases but not otherwise
+touched by this ticket.
+
+**Sweep finding beyond the seven named strings:** the meta description in `app/layout.tsx`
+(mirrored into its own OG/Twitter tags) and its `/en` counterpart in `app/en/page.tsx` both carried
+"zanim zdążysz się zdenerwować" / "before you even have time to get upset" as a trailing clause —
+neither is one of the seven ticket strings verbatim, but both are the exact removed phrase, so both
+were trimmed to end after "odpowiedź."/"response." to match the new voice rather than left
+contradicting it. `reviewguide-app` was grepped for both removed phrases (PL and EN forms): **zero**
+occurrences — nothing to flag there.
+
+**EN mirror translations** (faithful to the same meaning change as their PL counterpart):
+1. Hero `<h1>`: "Every negative Google review gets a professional response."
+2. Hero lead: "ReviewGuide checks your restaurant's Google reviews every 2 hours and prepares a
+   ready response — calm, specific, and never generic."
+3. How-it-works `<h2>`: "Three steps, no effort on your part."
+4. Step 1 body: "ReviewGuide checks your restaurant's Google reviews every 2 hours and catches the
+   ones that need a response — especially low ratings."
+5. Step 2 body: "ReviewGuide prepares a calm, specific response tailored to the review — in the
+   language it was written in."
+6. Examples caption: "Example reviews and responses from ReviewGuide."
+7. Footer tagline: "Every negative Google review gets a professional response." (mirrors the new
+   hero `<h1>` — the PL footer tagline is now byte-identical to the PL hero headline too, so the EN
+   pair stays identical by the same logic)
+8. (sweep item) Meta/OG/Twitter description: "ReviewGuide checks your restaurant's Google reviews
+   every 2 hours and prepares a calm, specific response."
+
+**Verification.** `next build` clean (all 11 static routes, zero TypeScript errors);
+`npm run lint` shows only pre-existing issues in files this ticket never touched
+(`ga4-loader.tsx`'s effect-setState warning, `logo.tsx`'s `no-img-element` warning,
+`generate-brand-assets.cjs`'s `require()` errors) — confirmed by cross-referencing the lint output
+against `git diff --stat`, which touches exactly the six copy files + the README. Deployed
+(`netlify deploy --prod --build`, live). **Live-verified against production**, not just the local
+build: `curl`'d `/` and `/en`, grepped for all 7+1 new strings (all present) and for both removed
+phrases in both PL and EN form (zero occurrences on either route); meta descriptions on both routes
+confirmed trimmed. Lighthouse spot-check against the live `/`: performance 98 / accessibility 96 /
+best-practices 100 / SEO 100, vs. ticket 6.6's mobile baseline of 97/96/100/100 — within the ±2
+band on every category (accessibility exact match).
+
+**Status: 🧪 delivered, awaiting PM review (via Stakeholder).**
+
+**Full evidence:** see the 6.14 row in `docs/PROGRESS.md`'s current-sprint table.

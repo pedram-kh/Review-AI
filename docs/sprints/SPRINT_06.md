@@ -1216,5 +1216,36 @@ typed (or maps_url pasted) and which result the customer chose... so a future 'w
 dispute is verifiable from a log instead of inferred", origin 6.15's Q1b gap, earliest slot
 "Sprint 6 or later". Not built this ticket, per the ticket's own "deferred" instruction.
 
-**Deploy + live verification:** see `docs/PROGRESS.md`'s 6.16 row for the commit hashes and the
-live Historia-day-header proof.
+**Deploy + live verification.** Backend: `git push origin main` (`787eff5`) → App Runner
+auto-deployment `SUCCEEDED` in ~4.5 minutes; `curl .../health` → `{"status":"ok","db":"ok"}`
+post-deploy. App repo: `git push origin main` (`616364e`) + `netlify deploy --prod --build` (same
+double-path as ticket 6.14), live at `app.reviewguide.eu`.
+
+**Live Historia-day-header proof, against real production data, not a mock.** A local `next
+start` of the exact deployed commit, `BACKEND_URL`/`AUTH_JWT_SECRET` env vars overridden to
+production values on the shell (`.env.local`'s dev-backend defaults otherwise win — Next's own
+precedence, confirmed the hard way: the first attempt 401'd against `/admin` with the *correct*
+`.env` credentials, root-caused to `.env.local` shadowing `.env` rather than a bug in the fix
+itself), with a session JWT minted for **customer 26** (`p.zietara@pepehousing.com`, Legend 97'
+Kebab — the real Q2 case, not a synthetic one) using the pulled production `AUTH_JWT_SECRET`, set
+as the `session` cookie. Screenshot (`.preview/6.16_historia_live.png`, local/untracked):
+
+| Data | Opinie | PILNE | Śr. ★ |
+|---|---|---|---|
+| 11 sie 2026 | 1 | 0 | 5.0 |
+| 9 sie 2026 | 1 | 0 | 5.0 |
+| 8 sie 2026 | 1 | 0 | 5.0 |
+| 29 lip 2026 | 4 | 0 | 5.0 |
+| 26 lip 2026 | 1 | 0 | 4.0 |
+| 18 lip 2026 | 1 | 0 | 5.0 |
+| **17 lip 2026** | 1 | **1** | 1.0 |
+
+**7 distinct day rows**, each holding only the reviews genuinely dated that day — including **17
+lip 2026** (17 July), the exact `review_date` 6.15's Q2 investigation identified for the disputed
+review. Before this fix, every one of these 11 reviews belonged to a single day-one digest
+(`created_at` = 2026-08-17) and would have collapsed into one `17 sie 2026` row; **that row does
+not exist at all post-fix** — direct, live confirmation, not an inference, that the Historia day
+header now shows each review's true date. (Incidental, disclosed: `netlify deploy`'s Edge
+Functions bundling step touched `deno.lock` by 2 lines as a side effect — left uncommitted, not
+part of this ticket's actual change, matching the "don't smooth over incidental diffs" posture
+used throughout this log.)

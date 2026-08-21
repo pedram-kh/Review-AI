@@ -1495,3 +1495,67 @@ above; that half is covered by 4 dedicated integration tests in `tests/test_bill
 scope here rather than presenting it as fully live-verified.
 
 **PROGRESS row:** pending PM review — see `docs/PROGRESS.md`.
+
+**Status: ✅ ACCEPTED (PM, 2026-08-19)** — "imported-not-retyped eligibility gate, reused
+ran-marker, both-orders race-safe claims, and the preserved pre-fix specimen all approved. The
+webhook path's live verification is deliberately delegated to the Stakeholder's upcoming real-card
+walkthrough."
+
+### Follow-ups from the acceptance report (PM, 2026-08-21)
+
+**1. `is_test` audit — the 6.10 lesson repeating.** Customers 25 (`pkzietara@gmail.com`) and 26
+(`p.zietara@pepehousing.com`) — the partner's own accounts, the exact ones this ticket's item 2
+verified-but-left-untouched — were both **`is_test=false`**, i.e. counted as real customers despite
+being known test/partner accounts. This is the identical mis-flag ticket 6.2 fixed for customer 16
+and ticket 6.10 fixed for 18/19 — same lesson, third occurrence, still no automated guard against
+it (a real candidate for the backlog, not actioned here since it's outside this ticket's scope).
+Fixed the same way as those two: over the bastion tunnel,
+
+```sql
+UPDATE customers SET is_test = true WHERE customer_id IN (25, 26) RETURNING customer_id, email, is_test;
+```
+
+— both rows confirmed flipped. `customers` has no `notes` column (the same finding 6.10 made,
+not re-discovered blindly) so "notes-marked" is satisfied by this doc record rather than a
+migration for a comment, same resolution 6.10 took. **Metric before → after:** was **3 real / 5
+test**, now **1 real / 7 test**. The one remaining real customer is `mohamad@defraged.com`
+(customer 20) — not a partner/test account, left untouched.
+
+**2. Trial auto-charge flag — customer 25.** Queried the **live** Stripe account directly
+(`sk_live_`, `acct_1U3I6iGV5v11Dm1D`): subscription `sub_1U5XHnGV5v11Dm1DzNiU4x3J`, status
+`trialing`, `livemode: true`, price `price_1U4wX9GV5v11Dm1DQHFmhfmz` (39.00 PLN/mo),
+`default_payment_method: pm_1U5XHPGV5v11Dm1DYi8PHU5u` (a real attached card — this is not a
+cardless/test subscription), `cancel_at_period_end: false`. **`trial_end`: 2026-08-31 20:37:12
+UTC.** Confirmed via a live upcoming-invoice preview (`stripe.Invoice.create_preview`, read-only,
+no invoice actually created) that the auto-conversion charge, if it happens, is **47.97 zł** (see
+item 3 below for the exact breakdown) — **unless the subscription is canceled via the Customer
+Portal before 2026-08-31 20:37 UTC, the partner's real card will be charged 47.97 zł on that
+date.** No action taken — per the ticket's own instruction, this is the Stakeholder's decision
+(cancel it now, since customer 25 is a flagged test account per item 1 above, or let it convert
+and keep the account as a paid canonical/reference account going forward).
+
+**3. Was the 6.10 gross-total assertion ever re-run after Stripe Tax activation? — No, until now.**
+Grepped every sprint doc after 6.10 (2026-08-16) for "Stripe Tax"/"automatic_tax"/"gross" — zero
+hits before this entry, and `ROADMAP.md`'s billing stack row still read "**Stripe Tax still
+`pending`**" until this session edited it. So: **not re-run since 6.10's own stop condition** —
+nobody had come back to it. **Re-run now, live, read-only:** `stripe.tax.Settings.retrieve()` on
+the live account reports **`status: "active"`** (someone — presumably the Stakeholder, per 6.10's
+handoff — activated it in the dashboard at some point after 2026-08-16, undocumented exactly when;
+this session is simply the first time anyone checked back). With it active, customer 25's own live
+upcoming-invoice preview (same call as item 2, one read covering both questions) resolves cleanly
+instead of erroring on `requires_location_inputs` the way 6.10's attempt did:
+
+```
+subtotal: 39.0 pln
+total: 47.97 pln
+automatic_tax: {"enabled": true, "status": "complete", "provider": "stripe", "liability": {"type": "self"}}
+```
+
+**39.00 zł net + 8.97 zł VAT = 47.97 zł gross** — exactly the number 6.6/6.10 both predicted and
+neither could confirm live at the time. `ROADMAP.md`'s billing stack row updated to record `active`
++ this confirmed number, replacing the stale "still pending" note. **Not done, deliberately, same
+as 6.10's own stop condition**: no real subscription was created or completed to observe this at
+actual Checkout — this read the *existing* live trial (customer 25's, item 2) rather than starting
+a new one, since a fresh throwaway Checkout session would have needed a real card to reach the
+tax-calculation step and 6.10 already reserved that specific walkthrough for the Stakeholder's own
+card.

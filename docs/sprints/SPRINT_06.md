@@ -1628,4 +1628,51 @@ heuristic's list.
 
 ### Deploy + live verification
 
-*(filled in after push/deploy below)*
+Both repos pushed and deployed: `reviewpilot-backend` (App Runner, `START_DEPLOYMENT` →
+`SUCCEEDED`, `/health` → `{"status":"ok","db":"ok"}`) and `reviewguide-app` (clean `.next` +
+`netlify deploy --prod --build`, live at `app.reviewguide.eu`).
+
+**Admin toggle, live round-trip against the deployed backend** — `PATCH
+/api/admin/customers/20` (`mohamad@defraged.com`, the customer this exact session's earlier
+follow-up flagged `is_test=true` by hand): flipped to `false`, confirmed in the response, then
+flipped back to `true` to restore state. Proves the write path end-to-end against production,
+not just against the test DB.
+
+**Metric re-confirmed live, via the deployed `GET /api/admin/customers` itself** (no tunnel
+needed for a read):
+
+```
+0 real / 8 test (total 8)
+13 pedram@defraged.com        is_test=True
+14 pedram@reviewguide.eu      is_test=True
+16 ppedram.kh@gmail.com       is_test=True
+18 ppedram.kh.work@gmail.com  is_test=True
+19 pedram+11@defraged.com     is_test=True
+20 mohamad@defraged.com       is_test=True
+25 pkzietara@gmail.com        is_test=True
+26 p.zietara@pepehousing.com  is_test=True
+```
+
+Unchanged from the 6.17 follow-up report (as expected — the round-trip above restored customer
+20's value) and matches the "0 real / 8 test" the PM's message named as the target.
+
+**Signup-time heuristic — disclosed scope, not live-verified via a real signup.** Exercising it
+end-to-end against production would mean a real magic-link request-link + verify round trip on
+a throwaway `@defraged.com`-style address, which needs the actual emailed token (never stored in
+plaintext, by design — see `app/routers/auth.py`'s own token-hashing) and would attempt a real
+Postmark send for no operational reason. Flagged here rather than silently skipped: the
+heuristic's correctness is covered by the parametrized + case-insensitivity + non-retroactive
+unit/integration tests in `tests/test_auth.py` (all passing against the exact code now deployed),
+and `TEST_EMAIL_DOMAINS` was left unset in both Secrets Manager and App Runner's plain env vars —
+confirmed via `netlify env:list`/App Runner's env — so the deployed service is running on
+`app/config.py`'s code default (`defraged.com,reviewguide.eu,pepehousing.com`), the exact three
+domains the PM named.
+
+**Frontend admin page — verified via the local production build, not a live browser hit on the
+deployed URL.** `/admin` is HTTP Basic Auth-gated in production (`ADMIN_USER`/`ADMIN_PASS`, set
+in Netlify's env store) and the password is write-only from this session's tooling (`netlify
+env:get`/`env:list` return it masked, by Netlify's own design — no plaintext retrieval available
+without console access). The bundle now live on Netlify is the identical artifact (`next build`,
+clean `.next`) that the local Playwright suite already ran against `next start` and passed —
+same code, same build step, only the deploy target differs — so this is treated as covered
+rather than re-clicked-through live.

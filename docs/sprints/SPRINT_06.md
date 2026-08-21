@@ -1063,6 +1063,11 @@ confirmed trimmed. Lighthouse spot-check against the live `/`: performance 98 / 
 best-practices 100 / SEO 100, vs. ticket 6.6's mobile baseline of 97/96/100/100 — within the ±2
 band on every category (accessibility exact match).
 
-**Status: 🧪 delivered, awaiting PM review (via Stakeholder).**
+**Status: ✅ ACCEPTED (PM, 2026-08-17)** — "exact-match discipline, meta/OG sweep catch disclosed,
+EN mirror faithful including the deliberate #2/#5 asymmetry. Partner copy feedback items 1–7 fully
+shipped." (The #2/#5 asymmetry: the hero lead (#2) keeps "bez szablonowego tonu"/"never generic" in
+both languages — that phrase was never in scope for removal there, only "w ciągu maksymalnie 2
+godzin" was — while step 2's body (#5) drops the equivalent clause in both languages, per the
+PM-amended replacement text. Same phrase, kept in one string and cut in the other, on purpose.)
 
 **Full evidence:** see the 6.14 row in `docs/PROGRESS.md`'s current-sprint table.

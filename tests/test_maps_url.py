@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from app.services.maps_url import parse_maps_url
+from app.services.maps_url import canonical_maps_url, parse_maps_url
 
 
 def test_extracts_place_id_from_query_param() -> None:
@@ -55,3 +55,11 @@ def test_short_link_network_failure_falls_back_to_original_url() -> None:
     # it should just come back empty (the same "ask for search" outcome as any other failure).
     assert parsed.place_id is None
     assert parsed.suggested_query is None
+
+
+def test_canonical_maps_url_uses_google_documented_place_id_query_format() -> None:
+    # Ticket 6.16: the exact format live-verified during 6.15 to resolve to the correct venue.
+    url = canonical_maps_url("ChIJr5OQYn23EEcRUzQ80140sZo")
+    assert url == "https://www.google.com/maps/place/?q=place_id:ChIJr5OQYn23EEcRUzQ80140sZo"
+    # Round-trips through our own parser too — not a one-way format.
+    assert parse_maps_url(url).place_id == "ChIJr5OQYn23EEcRUzQ80140sZo"

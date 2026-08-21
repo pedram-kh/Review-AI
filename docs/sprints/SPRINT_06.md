@@ -1071,3 +1071,150 @@ godzin" was — while step 2's body (#5) drops the equivalent clause in both lan
 PM-amended replacement text. Same phrase, kept in one string and cut in the other, on purpose.)
 
 **Full evidence:** see the 6.14 row in `docs/PROGRESS.md`'s current-sprint table.
+
+---
+
+## 6.15 — Customer-data integrity investigation (Partner feedback items 8+9)
+
+**Origin:** Partner live-testing feedback, raised by the Stakeholder. Three questions about two
+of the partner's own trial accounts: reviews he says he cannot find on Google (customer 25,
+`pkzietara@gmail.com`, Częstochowa restaurant "Restauracja PAPU"), and a review whose panel date
+looks wrong versus Google (customer 26, `p.zietara@pepehousing.com`, "Legend 97' Kebab",
+Częstochowa).
+
+**THIS WAS READ-ONLY.** No fixes, no data mutations. The only spend was one pre-approved
+Outscraper fetch (3 newest reviews, sort=newest, actual cost $0.009) for Q3's source-fidelity
+check. Findings-only — remediation is a separate PM/Stakeholder decision. Full report (evidence,
+code citations, the four-way comparison table, root-cause verdicts, and remediation options with
+effort estimates) delivered to the Stakeholder in-session; not duplicated here.
+
+**Headline verdicts:**
+- **Q1 (3 "phantom" reviews):** all three disputed reviews are genuinely stored, verbatim, from
+  Outscraper's day-one fetch at connect time (2026-08-17) — not AI-fabricated (review text and
+  response text are different columns, written by different code paths: `app/jobs/fetch_reviews.py`
+  stores `raw_review["review_text"]` verbatim into `reviews.text`; `app/services/claude_client.py`
+  only ever writes to `alerts.response_text`/`leads.generated_response`, never to `reviews.text`).
+  No plausible wrong-place candidate exists in `places` for Częstochowa. Root cause is most
+  consistent with Google having filtered/removed them since day-one (one is a fly-and-hair
+  health complaint, a prime removal candidate) — not fully provable without a larger paid
+  Outscraper re-fetch (a remediation option, not run here).
+- **Q2 (review "dated today," Google shows ~a month old):** **display bug, not a data bug.**
+  `reviews.review_date` is stored correctly (2026-07-17, exactly matching Google/Outscraper).
+  `reviewguide-app`'s day-bucketing (`lib/alertGroups.ts`'s `groupAlertsByWarsawDay`, used by both
+  the Historia tab's row dates and the Najnowsze tab's day selection) keys off `alert.created_at`
+  (the day-one digest's creation time — "today" at connect) instead of `review.review_date`. The
+  per-row inline date inside `AlertsList.tsx` already prefers `review_date` correctly; the
+  day-*grouping* layer does not.
+- **Q3 (source fidelity):** the one review in both our DB and the fresh fetch (`mieszkanie277`)
+  matched byte-for-byte on text, and exactly on rating/timestamp — zero drift. The fresh fetch
+  (3 newest) could not directly confirm or deny the 3 older disputed reviews' current Google
+  status, since the pre-approved budget didn't cover fetching that far back — flagged as a
+  remediation option. Public-page curl checks confirmed venue identity (name + Google CID match)
+  for the PAPU place, but reviews/rating/counts are 100% JS-rendered and were not parseable from
+  raw HTML for ANY review, including ones known to exist — a hard limit of the curl-only method,
+  disclosed rather than papered over.
+
+**PROGRESS row:** ✅ **ACCEPTED (PM, 2026-08-18)** — "code-path fabrication proof cited by line,
+byte-level source-fidelity evidence, CID-based venue confirmation, and the disclosed curl limit
+all exemplary. Investigation answered what it could and named what it couldn't." Remediation
+options 1 (Q2 display-bug fix), 2 (decisive Outscraper re-fetch), and 4 (`google_maps_url`
+backfill) pulled into ticket 6.16, "Integrity fixes from 6.15" (below). Option 3 (connect-flow
+provenance logging) parked to `BACKLOG.md`.
+
+---
+
+## 6.16 — Integrity fixes from 6.15
+
+**Origin:** PM ticket, 2026-08-18, direct follow-up to 6.15's accepted findings and remediation
+options. Four items: (1) the decisive Outscraper fetch to close Q1's Google-removal question
+definitively, (2) the Q2 display-bug fix, (3) `google_maps_url` populated at connect time +
+backfill of the two existing NULLs, (4) a `BACKLOG.md` entry for connect-flow provenance logging
+(deferred, not built this ticket).
+
+**1. THE DECISIVE FETCH — Q1 closed.** Shown per Rule 6 before running (temp script, deleted
+after use, same read-only-against-our-DB discipline as 6.15's fetch — no `upsert_reviews` call,
+nothing written): `OutscraperClient().fetch_reviews(["ChIJr5OQYn23EEcRUzQ80140sZo"],
+reviews_per_place=40)`. 40 sized off this ticket's own DB read of the 11 reviews we have stored
+for PAPU: the 3 disputed reviews sit at positions #4 (Iza Bella, fly/hair, 2026-08-14), #7 (V154,
+shakshuka surcharge, 2026-08-11), and #9 (Red Star, waitress/Zakopane, 2026-08-10) counting from
+newest — 40 gives comfortable margin. Cost: 40 review records × $0.003/record (LOGIC.md §4) =
+**$0.12**, under the $0.20 cap. **Result: all 3 disputed reviews are PRESENT in today's
+(2026-08-21) fresh fetch** — 4 days after the day-one fetch that first stored them, and the
+partner's own report. **Verdict, stated plainly for relay to the partner: the reviews were NOT
+removed from Google/Outscraper's index.** They still exist at the source today. The most
+consistent remaining explanation is that Google's own public-facing Maps UI applies a
+relevance/spam filter that can hide certain reviews from casual browsing while the underlying
+review data (what Outscraper scrapes, and what the customer's Google Business Profile owner
+dashboard would show) still contains them — a **provider-index-vs-public-display gap**, not a
+removal. This closes Q1 with a definitive verdict, as requested: present → filtering, not
+removal.
+
+**2. Q2 display-bug fix.** `reviewguide-app/lib/alertGroups.ts`'s `groupAlertsByWarsawDay` day
+key changed from `warsawDayKey(alert.created_at)` to `warsawDayKey(alert.review_date ??
+alert.created_at)` — one line, `?? created_at` fallback kept for any legacy/malformed row where
+`review_date` is ever null. This is the sole day-bucketing function in the module; Najnowsze's
+"newest day" selection (`latestDayAlerts`) calls it directly and needed no separate change.
+`sortNajnowsze` (within-day ordering) already preferred `review_date` — unchanged, confirmed
+correct by a new regression test. **New test file** `lib/alertGroups.test.ts` (6 cases, `node
+--test`, same `process.env.TZ` non-Warsaw discipline as `format.test.ts`'s 6.3/6.9 regression
+test): the exact 6.15 Q2 shape (day-one digest `created_at` 2026-08-17, `review_date`
+2026-07-17) now groups under `2026-07-17`, not `2026-08-17`; legacy-null fallback; mixed-batch
+day-splitting; Najnowsze picks the newest-*review*-day; Historia's day-group ordering stays
+newest-first; `sortNajnowsze` unchanged-and-correct. `package.json` gained
+`"test:alert-groups": "node --test lib/alertGroups.test.ts"`, same pattern as `test:format`.
+**One import fix needed to make the new test runnable at all**: `alertGroups.ts` imported
+`warsawDayKey` via the `@/lib/format` bundler-only path alias, which `node --test` cannot resolve
+outside Next.js's own build — switched to a relative `./format.ts` import (harmless everywhere
+else; `tsconfig.json`'s existing `allowImportingTsExtensions` was already set for exactly this
+reason by `format.test.ts`). **Verification:** `test:alert-groups` 6/6 pass, `test:format` still
+6/6, `tsc --noEmit` clean, `next build` clean (confirms the `.ts`-extension import resolves under
+Turbopack too, not just `tsc`), `npm run lint` clean, full local Playwright suite
+**33 passed / 3 skipped** (2 live-login as established, 1 mobile-drawer-geometry spec correctly
+skipped on the desktop project) — zero regressions, key-leak grep on the fresh `.next/static`
+clean. **Not changed, disclosed rather than silently expanded:** `urgentCountLast7Days` (the
+Historia tab's red PILNE-count-in-last-7-days chip, ticket 6.9) still keys off `created_at` only
+— the ticket text scoped this fix to "day key" + "Najnowsze's newest day logic" specifically,
+and that chip is a different, uninstructed function; flagging that it has the same theoretical
+exposure (an old urgent review in a day-one digest could inflate a "last 7 days" count) as a
+possible future follow-up, not fixed here.
+
+**3. `google_maps_url` at connect time + backfill.** New `app/services/maps_url.py::canonical_maps_url(place_id)`
+returns Google's documented `https://www.google.com/maps/place/?q=place_id:<id>` deep-link format
+(the exact format live-verified during 6.15 to resolve to PAPU's correct venue identity).
+`connect_place` (`app/routers/customer.py`) now includes it in the same upsert that already
+writes name/address/rating, with the identical `COALESCE(Place.google_maps_url,
+excluded.google_maps_url)` posture — a place System A's discovery pipeline (`app/jobs/discover.py`)
+already populated with Outscraper's own richer `location_link` keeps that value; only a
+connect-flow-only place (previously left NULL forever) gets the constructed fallback.
+`connect_place` cannot call Outscraper itself for a real `location_link` (no synchronous
+Outscraper call happens at connect time — see `app/jobs/day_one.py`'s docstring on why day-one is
+a background task), so the constructed format is the only thing available at that point;
+disclosed as a deliberate, good-enough choice rather than adding a new synchronous Outscraper call
+to the connect path purely for this field. **New tests** in `tests/test_customer.py`
+(`test_connect_place_populates_google_maps_url_for_new_place`,
+`test_connect_place_never_overwrites_existing_google_maps_url`) and `tests/test_maps_url.py`
+(`test_canonical_maps_url_uses_google_documented_place_id_query_format`, round-trips through our
+own `parse_maps_url`). **Backfill, shown before running (both guarded `AND google_maps_url IS
+NULL`, transactional, executed through the SSM bastion):**
+```sql
+UPDATE places SET google_maps_url = '<PAPU's real Outscraper location_link, returned for free by
+this ticket's own item-1 fetch — richer than the constructed format, so used here instead>'
+WHERE place_id = 'ChIJr5OQYn23EEcRUzQ80140sZo' AND google_maps_url IS NULL;
+
+UPDATE places SET google_maps_url = 'https://www.google.com/maps/place/?q=place_id:ChIJ_TVFOfW3EEcRJh_N1h11cXc'
+WHERE place_id = 'ChIJ_TVFOfW3EEcRJh_N1h11cXc' AND google_maps_url IS NULL;
+```
+Both affected exactly 1 row (verified via `UPDATE 1` × 2 and a post-update `SELECT`, no other
+`places` rows touched). The PAPU row therefore ends up with Outscraper's authentic
+`location_link` (free byproduct of item 1's fetch, not a second spend); Legend 97' Kebab gets the
+constructed fallback — the same asymmetry `connect_place` will now produce for any future
+new-vs-already-discovered place, disclosed rather than smoothed over. **Verification:** backend
+suite **406 passed** (tunnel open, `test_health` included), `ruff`/ad-hoc syntax clean.
+
+**4. Backlog.** Added to `docs/BACKLOG.md`: "Connect-flow provenance — persist the search query
+typed (or maps_url pasted) and which result the customer chose... so a future 'wrong restaurant'
+dispute is verifiable from a log instead of inferred", origin 6.15's Q1b gap, earliest slot
+"Sprint 6 or later". Not built this ticket, per the ticket's own "deferred" instruction.
+
+**Deploy + live verification:** see `docs/PROGRESS.md`'s 6.16 row for the commit hashes and the
+live Historia-day-header proof.

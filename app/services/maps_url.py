@@ -77,3 +77,23 @@ def parse_maps_url(url: str) -> ParsedMapsUrl:
         url = _resolve_short_link(url)
 
     return ParsedMapsUrl(place_id=_extract_place_id(url), suggested_query=_extract_name(url))
+
+
+def canonical_maps_url(place_id: str) -> str:
+    """Deterministic, universal Google Maps deep link for any place_id — no Outscraper call
+    needed, so `connect_place` (app/routers/customer.py) can populate `places.google_maps_url`
+    synchronously at connect time instead of only via System A's discovery pipeline
+    (app/jobs/discover.py, which stores Outscraper's own `location_link` field instead — a
+    richer, Outscraper-authored URL for the same place). Ticket 6.15 (Q1a) found connect-flow
+    places left this column NULL, which forced hand-reconstructing a URL during that
+    investigation's public-page checks; ticket 6.16 closes that gap.
+
+    `?q=place_id:<id>` is Google's own documented format for deep-linking a Maps URL straight to
+    a known place_id (confirmed live during 6.15 — this exact format resolved to the correct
+    venue name/address/CID for the disputed Częstochowa restaurant). connect_place's own upsert
+    already COALESCEs name/address/rating so a customer's thinner input never overwrites System
+    A's richer data (see that function) — the same COALESCE is used for this column, so a place
+    System A already discovered keeps its real `location_link` rather than being replaced by
+    this constructed fallback.
+    """
+    return f"https://www.google.com/maps/place/?q=place_id:{place_id}"

@@ -501,6 +501,57 @@ def test_connect_place_never_overwrites_existing_place_metadata(
 @patch(
     "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
 )
+def test_connect_place_populates_google_maps_url_for_new_place(
+    mock_day_one: MagicMock, db_session, auth_settings
+) -> None:
+    """Ticket 6.16 (closes 6.15's Q1a gap): a brand-new connect-flow place must get a working
+    Maps URL synchronously, not stay NULL until/unless System A's discovery pipeline ever finds
+    the same place_id independently."""
+    customer = _seed_customer(db_session, email="connect5@example.com")
+
+    response = client.post(
+        "/api/customer/connect-place",
+        json={"place_id": "papu-like-place", "name": "Restauracja PAPU"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 202
+    place = db_session.get(Place, "papu-like-place")
+    assert place.google_maps_url == "https://www.google.com/maps/place/?q=place_id:papu-like-place"
+
+
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_connect_place_never_overwrites_existing_google_maps_url(
+    mock_day_one: MagicMock, db_session, auth_settings
+) -> None:
+    """A place System A already discovered carries Outscraper's own richer `location_link` —
+    connect_place's COALESCE must keep it, the same posture as name/address/rating above."""
+    db_session.add(
+        Place(
+            place_id="swept-place-2",
+            name="Prawdziwa Nazwa",
+            google_maps_url="https://www.google.com/maps/place/Prawdziwa+Nazwa/@1,2,3z/data=!real",
+        )
+    )
+    db_session.commit()
+    customer = _seed_customer(db_session, email="connect6@example.com")
+
+    response = client.post(
+        "/api/customer/connect-place",
+        json={"place_id": "swept-place-2"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 202
+    place = db_session.get(Place, "swept-place-2")
+    assert place.google_maps_url == "https://www.google.com/maps/place/Prawdziwa+Nazwa/@1,2,3z/data=!real"
+
+
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
 @patch("app.routers.customer.parse_maps_url")
 def test_connect_place_by_maps_url_resolves_place_id(
     mock_parse: MagicMock, mock_day_one: MagicMock, db_session, auth_settings

@@ -18,7 +18,7 @@ from app.db import get_session
 from app.jobs.day_one import STALE_RUN_AFTER, run_day_one_for_customer_locked
 from app.models import Alert, Customer, Place, Review
 from app.services.cost_guard import CostCapExceeded
-from app.services.maps_url import parse_maps_url
+from app.services.maps_url import canonical_maps_url, parse_maps_url
 from app.services.outscraper_client import OutscraperClient
 
 logger = logging.getLogger(__name__)
@@ -410,11 +410,16 @@ def connect_place(
     # app/jobs/day_one.py) or an entirely new one outside Warsaw/Śródmieście. COALESCE keeps
     # whatever we already know rather than letting thinner customer-supplied metadata overwrite
     # richer Sprint 1 data — same pattern as app/jobs/enrich.py's apply_contacts().
+    # Ticket 6.16 (closes 6.15's Q1a gap): populate google_maps_url synchronously here, not just
+    # via System A's discovery pipeline — see canonical_maps_url's docstring for the format and
+    # why COALESCE keeps a richer System-A-discovered `location_link` intact if one already
+    # exists for this place_id.
     insert_stmt = pg_insert(Place).values(
         place_id=resolved_place_id,
         name=resolved_name,
         address=body.address,
         rating=body.rating,
+        google_maps_url=canonical_maps_url(resolved_place_id),
     )
     session.execute(
         insert_stmt.on_conflict_do_update(
@@ -423,6 +428,9 @@ def connect_place(
                 "name": func.coalesce(Place.name, insert_stmt.excluded.name),
                 "address": func.coalesce(Place.address, insert_stmt.excluded.address),
                 "rating": func.coalesce(Place.rating, insert_stmt.excluded.rating),
+                "google_maps_url": func.coalesce(
+                    Place.google_maps_url, insert_stmt.excluded.google_maps_url
+                ),
             },
         )
     )

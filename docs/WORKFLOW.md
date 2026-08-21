@@ -71,6 +71,27 @@ poll run, and 5.7's two backfilled digests (10 drafts each) were delivered to te
 the flag as "exclude from real-customer counts", nothing more — if an account must stop costing
 money, cancel its subscription or delete it.
 
+**Rule 1 above kept getting missed anyway — ticket 6.18's systemic fix (2026-08-21).** Four
+separate mis-flags reached production before anyone noticed (customer 16 at 6.2; 18/19 at 6.10;
+20 and 25/26 at 6.17), each one caught by a human doing an ad-hoc audit rather than by the system
+itself. Two changes, so a fifth occurrence doesn't need a fifth manual catch:
+
+1. **Signup-time heuristic.** `app/routers/auth.py`'s lazy customer-creation (`POST
+   /api/auth/verify`) now checks a brand-new signup's email domain against
+   `TEST_EMAIL_DOMAINS` (`app/config.py`, comma-separated, defaults to `defraged.com`,
+   `reviewguide.eu`, `pepehousing.com` — the three domains behind the mis-flags above) and sets
+   `is_test=true` automatically when it matches. It is still rule 1 in code rather than a
+   replacement for it: a domain not on the list is still the operator's job to flag by hand at
+   creation, same as before.
+2. **Admin toggle.** `PATCH /api/admin/customers/{id}` (and the matching read-write switch on
+   `/admin/customers/{id}` in `reviewguide-app`) can flip the flag either direction after the
+   fact — for a domain not on the heuristic's list, or to correct a heuristic false positive.
+   `customers` has no `notes` column (found at 6.10, not rediscovered at 6.18), so the change is
+   audit-logged as a line (`admin: customer {id} ({email}) is_test {old} -> {new}`) rather than
+   written to a column that doesn't exist. This ends the "manual `UPDATE customers SET
+   is_test=...` over the bastion tunnel" era rules 1–3 above still describe for every case that
+   isn't a known test domain.
+
 ## 5. Definitions
 
 - **Ticket** — smallest reviewable unit of work (≤ half a day of Cursor time).

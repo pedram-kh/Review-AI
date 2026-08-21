@@ -1,11 +1,16 @@
 """Admin customers view (SPRINT_05.md ticket 5.6, pulled from BACKLOG by Stakeholder 2026-08-07).
 
-Read-only in v1 — GET /api/admin/customers (list) and GET /api/admin/customers/{id} (detail).
-Same X-Admin-Key auth as the leads/stats admin API (app/routers/admin.py's require_admin_key) —
-this is the internal-ops view of System B (the customer product), not customer session auth, so
-it reuses the existing admin boundary rather than inventing a second one.
+GET /api/admin/customers (list) and GET /api/admin/customers/{id} (detail) — read-only, as
+originally shipped. Ticket 6.18 adds the panel's first write action, PATCH /customers/{id}, to
+end the "manual UPDATE over the bastion tunnel" era for the is_test flag (customers 16, 18/19,
+20, 25/26 all had to be caught and fixed by hand across tickets 6.2/6.10/6.17 — this is the
+second half of that ticket's systemic fix, the first half being app.routers.auth's signup-time
+domain heuristic). Same X-Admin-Key auth as the leads/stats admin API (app/routers/admin.py's
+require_admin_key) — this is the internal-ops view of System B (the customer product), not
+customer session auth, so it reuses the existing admin boundary rather than inventing a second one.
 """
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +22,8 @@ from app.db import get_session
 from app.models import Alert, Customer, Place, Review
 from app.routers.admin import require_admin_key
 from app.services.postmark_client import get_message_delivery_status
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/admin", tags=["admin-customers"], dependencies=[Depends(require_admin_key)]
@@ -125,14 +132,12 @@ def list_customers(session: Session = Depends(get_session)) -> list[CustomerList
 # --- GET /api/admin/customers/{id} -----------------------------------------------------------
 
 
-@router.get("/customers/{customer_id}")
-def get_customer_detail(
-    customer_id: int, session: Session = Depends(get_session)
-) -> CustomerDetail:
-    customer = session.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
-
+def _build_customer_detail(session: Session, customer: Customer) -> CustomerDetail:
+    """Shared by GET and PATCH /customers/{id} (ticket 6.18 added the latter) — a write endpoint
+    returning the exact same shape a follow-up GET would is the established pattern in this
+    codebase (app.routers.admin.patch_lead returns a full LeadDetail too), so the frontend never
+    needs a second round-trip just to see the row it changed.
+    """
     place: CustomerPlaceInfo | None = None
     if customer.place_id:
         place_row = session.get(Place, customer.place_id)
@@ -148,7 +153,7 @@ def get_customer_detail(
     alert_rows = session.execute(
         select(Alert, Review)
         .join(Review, Review.review_id == Alert.review_id)
-        .where(Alert.customer_id == customer_id)
+        .where(Alert.customer_id == customer.customer_id)
         .order_by(desc(Alert.created_at), desc(Alert.alert_id))
     ).all()
 
@@ -199,3 +204,49 @@ def get_customer_detail(
         alerts=alerts,
         recent_delivery_statuses=delivery_statuses,
     )
+
+
+@router.get("/customers/{customer_id}")
+def get_customer_detail(
+    customer_id: int, session: Session = Depends(get_session)
+) -> CustomerDetail:
+    customer = session.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
+    return _build_customer_detail(session, customer)
+
+
+# --- PATCH /api/admin/customers/{id} ---------------------------------------------------------
+
+
+class CustomerPatchBody(BaseModel):
+    # Ticket 6.18. Only is_test is writable here — this is the "end the manual-UPDATE era" fix
+    # for that one recurring flag, not a general customer-editing endpoint; every other field on
+    # CustomerDetail stays admin-read-only for now, same narrow scope as the ticket itself.
+    is_test: bool
+
+
+@router.patch("/customers/{customer_id}")
+def patch_customer(
+    customer_id: int, body: CustomerPatchBody, session: Session = Depends(get_session)
+) -> CustomerDetail:
+    customer = session.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
+
+    # `customers` has no `notes` column (the same finding ticket 6.10 made, not re-discovered
+    # blindly — see docs/sprints/SPRINT_06.md's 6.10 section) — a log line is the audit trail the
+    # ticket asked for in its absence, same "notes-less style" resolution 6.10 already took.
+    if body.is_test != customer.is_test:
+        logger.info(
+            "admin: customer %s (%s) is_test %s -> %s",
+            customer.customer_id,
+            customer.email,
+            customer.is_test,
+            body.is_test,
+        )
+        customer.is_test = body.is_test
+        session.commit()
+        session.refresh(customer)
+
+    return _build_customer_detail(session, customer)

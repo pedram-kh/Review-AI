@@ -369,3 +369,109 @@ def test_detail_exposes_is_test(db_session) -> None:
 
     assert response.status_code == 200
     assert response.json()["is_test"] is True
+
+
+# --- PATCH /api/admin/customers/{id} (ticket 6.18 — ends the manual-UPDATE era) ----------------
+
+
+@with_admin_key
+def test_patch_customer_requires_admin_key(db_session) -> None:
+    customer = _seed_customer(db_session, is_test=False)
+    response = client.patch(
+        f"/api/admin/customers/{customer.customer_id}", json={"is_test": True}
+    )
+    assert response.status_code == 401
+
+
+@with_admin_key
+def test_patch_customer_404_for_unknown_id(db_session) -> None:
+    response = client.patch(
+        "/api/admin/customers/999999", json={"is_test": True}, headers=HEADERS
+    )
+    assert response.status_code == 404
+
+
+@with_admin_key
+def test_patch_customer_flips_is_test_true(db_session) -> None:
+    customer = _seed_customer(db_session, email="mis-flagged@example.com", is_test=False)
+
+    response = client.patch(
+        f"/api/admin/customers/{customer.customer_id}", json={"is_test": True}, headers=HEADERS
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_test"] is True
+    db_session.refresh(customer)
+    assert customer.is_test is True
+
+
+@with_admin_key
+def test_patch_customer_flips_is_test_false(db_session) -> None:
+    """The reverse direction matters too — a false positive from the 6.18 signup heuristic (or an
+    earlier hand-flip) must be correctable the same way, not just one-directional."""
+    customer = _seed_customer(db_session, email="over-flagged@example.com", is_test=True)
+
+    response = client.patch(
+        f"/api/admin/customers/{customer.customer_id}", json={"is_test": False}, headers=HEADERS
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_test"] is False
+    db_session.refresh(customer)
+    assert customer.is_test is False
+
+
+@with_admin_key
+def test_patch_customer_returns_full_detail_shape_not_just_the_flag(db_session) -> None:
+    """Same contract as app.routers.admin.patch_lead — a full CustomerDetail back, so the admin
+    page never needs a second round-trip just to redisplay the row it changed."""
+    place = _seed_place(db_session, name="Restauracja Testowa")
+    customer = _seed_customer(db_session, place_id=place.place_id, is_test=False)
+
+    response = client.patch(
+        f"/api/admin/customers/{customer.customer_id}", json={"is_test": True}, headers=HEADERS
+    )
+
+    body = response.json()
+    assert body["customer_id"] == customer.customer_id
+    assert body["place"]["name"] == "Restauracja Testowa"
+    assert body["is_test"] is True
+
+
+@with_admin_key
+def test_patch_customer_is_a_no_op_write_when_value_is_unchanged(db_session, caplog) -> None:
+    """No log line, no wasted write, when the submitted value already matches — the endpoint's
+    own audit-log-in-place-of-notes contract (see patch_customer's comment) should only fire on
+    an actual change."""
+    import logging
+
+    customer = _seed_customer(db_session, email="no-op@example.com", is_test=True)
+
+    with caplog.at_level(logging.INFO, logger="app.routers.admin_customers"):
+        response = client.patch(
+            f"/api/admin/customers/{customer.customer_id}",
+            json={"is_test": True},
+            headers=HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert not any("is_test" in record.message for record in caplog.records)
+
+
+@with_admin_key
+def test_patch_customer_logs_the_change(db_session, caplog) -> None:
+    import logging
+
+    customer = _seed_customer(db_session, email="audit-me@example.com", is_test=False)
+
+    with caplog.at_level(logging.INFO, logger="app.routers.admin_customers"):
+        client.patch(
+            f"/api/admin/customers/{customer.customer_id}",
+            json={"is_test": True},
+            headers=HEADERS,
+        )
+
+    assert any(
+        "audit-me@example.com" in record.message and "False -> True" in record.message
+        for record in caplog.records
+    )

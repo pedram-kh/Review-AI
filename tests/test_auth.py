@@ -27,6 +27,9 @@ TEST_APP_ORIGIN = "http://localhost:3000"
 TEST_JWT_SECRET = "test-jwt-secret-at-least-32-bytes-long-for-hs256"
 
 
+TEST_EMAIL_DOMAINS = "defraged.com,reviewguide.eu,pepehousing.com"
+
+
 @pytest.fixture
 def auth_settings():
     with (
@@ -34,6 +37,11 @@ def auth_settings():
         patch("app.auth.settings") as mock_auth_settings,
     ):
         mock_router_settings.app_origin = TEST_APP_ORIGIN
+        # Ticket 6.18: the real default (see app/config.py) — set explicitly here rather than
+        # left as a MagicMock auto-attribute, since _is_test_email_domain calls .split(",") on it
+        # for every /verify request, and every pre-6.18 test in this file uses @example.com
+        # addresses that must keep reading as real (is_test=False) with this default in place.
+        mock_router_settings.test_email_domains = TEST_EMAIL_DOMAINS
         mock_auth_settings.auth_jwt_secret = TEST_JWT_SECRET
         yield
 
@@ -393,3 +401,66 @@ def test_verify_session_token_is_a_valid_jwt_with_30_day_expiry(
         datetime.fromtimestamp(payload["exp"], UTC) - datetime.fromtimestamp(payload["iat"], UTC)
     ).days
     assert ttl_days == 30
+
+
+# --- POST /api/auth/verify, ticket 6.18: signup-time is_test domain heuristic -----------------
+#
+# The systemic fix for customers 16, 18/19, 20, 25/26 all shipping as is_test=false and having
+# to be caught by hand across tickets 6.2/6.10/6.17: a NEW signup whose email domain matches
+# TEST_EMAIL_DOMAINS (app/config.py) is flagged true from creation, per WORKFLOW.md §4's own
+# "is_test=true from the moment of creation — never set afterwards" rule.
+
+
+@pytest.mark.parametrize(
+    "email", ["mohamad@defraged.com", "anyone@reviewguide.eu", "p.zietara@pepehousing.com"]
+)
+def test_verify_auto_flags_new_customer_on_test_email_domain(
+    db_session, auth_settings, mock_send, email
+) -> None:
+    _seed_token(db_session, email=email)
+
+    client.post("/api/auth/verify", json={"token": "raw-test-token"})
+
+    customer = db_session.query(Customer).filter_by(email=email).one()
+    assert customer.is_test is True
+
+
+def test_verify_leaves_new_customer_is_test_false_for_an_ordinary_domain(
+    db_session, auth_settings, mock_send
+) -> None:
+    _seed_token(db_session, email="genuine-restaurant@example.com")
+
+    client.post("/api/auth/verify", json={"token": "raw-test-token"})
+
+    customer = db_session.query(Customer).filter_by(email="genuine-restaurant@example.com").one()
+    assert customer.is_test is False
+
+
+def test_is_test_email_domain_matches_case_insensitively() -> None:
+    """Unit-level, not through the endpoint: verify() never normalizes an email's case itself
+    (that happens upstream, in request_link's own lowercasing) — this pins the helper's own
+    case-insensitivity on both the email side and the configured-domain side independently."""
+    from app.routers.auth import _is_test_email_domain
+
+    with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.test_email_domains = "DeFraged.COM"
+        assert _is_test_email_domain("someone@DEFRAGED.com") is True
+        assert _is_test_email_domain("someone@defraged.com") is True
+        assert _is_test_email_domain("someone@other.com") is False
+
+
+def test_verify_does_not_retroactively_flag_an_existing_customer(
+    db_session, auth_settings, mock_send
+) -> None:
+    """The heuristic is a signup-time decision, not a standing rule re-applied on every login —
+    an existing customer's own is_test value (however it got there) must survive a later verify
+    even if their email happens to sit on a domain that's since been added to the config."""
+    email = "already-real@defraged.com"
+    db_session.add(Customer(email=email, notification_email=email, is_test=False))
+    db_session.commit()
+
+    _seed_token(db_session, email=email)
+    client.post("/api/auth/verify", json={"token": "raw-test-token"})
+
+    customer = db_session.query(Customer).filter_by(email=email).one()
+    assert customer.is_test is False

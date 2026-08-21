@@ -1559,3 +1559,73 @@ actual Checkout — this read the *existing* live trial (customer 25's, item 2) 
 a new one, since a fresh throwaway Checkout session would have needed a real card to reach the
 tax-calculation step and 6.10 already reserved that specific walkthrough for the Stakeholder's own
 card.
+
+---
+
+## 6.18 — Systemic fix for the recurring `is_test` mis-flag
+
+**Origin:** PM ticket, 2026-08-21, opened directly from 6.17's follow-up report. Four separate
+mis-flags had reached production and each had to be caught by a human doing an ad-hoc audit:
+customer 16 (ticket 6.2), 18/19 (ticket 6.10), and 20 and 25/26 (ticket 6.17, this session).
+Same root cause every time — `is_test` defaults to `false` and nothing ever checked a new
+signup's email against "is this obviously one of our own test/partner domains?" A fifth
+occurrence was only a matter of time without a systemic fix, which is what this ticket asked for.
+
+**(a) Signup-time heuristic.** `app/config.py` gains `test_email_domains` (comma-separated, plain
+App Runner env var — not a secret, same posture as `ops_alert_email` — defaulting to
+`defraged.com,reviewguide.eu,pepehousing.com`, the three domains behind every mis-flag above so
+local/prod behave identically without an explicit env entry). `app/routers/auth.py` gains
+`_is_test_email_domain(email)`, read fresh from `settings` on every call (not cached at import
+time, so a test's `patch(...)` or a runtime env change takes effect immediately) — and
+`POST /api/auth/verify`'s lazy customer-creation branch now passes `is_test=_is_test_email_domain(email)`
+at `Customer(...)` construction, logging when it fires. **Deliberately signup-time only, not
+retroactive**: an existing customer's domain matching the list later must not silently flip their
+flag on their next login — that would be a standing rule quietly re-applied, not the one-time
+signup decision the ticket asked for (existing mis-flagged rows are the manual cleanup already
+done for 16/18/19/20/25/26, not something this code path revisits).
+
+**(b) Admin toggle.** `app/routers/admin_customers.py` gets the admin panel's first write action:
+`PATCH /api/admin/customers/{id}`, body `{"is_test": bool}`, same `X-Admin-Key` boundary as every
+other admin endpoint. Narrow by design — only `is_test` is writable, not a general customer-editing
+endpoint. Detail-building logic factored out of `get_customer_detail` into `_build_customer_detail`
+so GET and PATCH share it and return the identical `CustomerDetail` shape (same contract
+`app.routers.admin.patch_lead` already established for leads). `customers` has no `notes` column
+(6.10's own finding, not rediscovered here) — the "audit-logged in notes-less style" instruction is
+satisfied by a log line (`admin: customer {id} ({email}) is_test {old} -> {new}`), emitted only
+when the value actually changes, not on a same-value PATCH.
+
+**`reviewguide-app`**: `lib/api.ts` gains `patchCustomer` + `CustomerPatchBody`; a new
+`app/api/admin/customers/[id]/route.ts` proxies PATCH the same way `app/api/leads/[id]/route.ts`
+already proxies leads. `app/admin/customers/[id]/IsTestToggle.tsx` (new Client Component, since it
+needs `onClick` + local state inside the otherwise-Server-Component detail page) replaces the old
+badge — which only ever rendered when `is_test` was already `true` — with an always-visible,
+click-to-flip switch (`role="switch"`, `aria-checked`) showing "test account → mark real" or "real
+account → mark test".
+
+**Tests.** Backend: `tests/test_auth.py` — parametrized signup-domain-match test across all three
+configured domains, a non-matching-domain control, a case-insensitivity unit test directly on
+`_is_test_email_domain`, and a "does not retroactively flag an existing customer" test (the
+"signup-time only" contract above). The shared `auth_settings` fixture now sets
+`test_email_domains` explicitly — every pre-6.18 test in that file uses `@example.com` addresses
+and must keep reading `is_test=False` with the real default in place. `tests/test_admin_customers.py`
+— admin-key-required, 404-unknown-id, flips true→false and false→true, returns the full
+`CustomerDetail` shape (not just the flag), a same-value PATCH logs nothing, a changing PATCH logs
+the exact before/after line (via `caplog`). **442 backend tests pass** (tunnel closed —
+`test_health` is the one pre-existing failure, same standing exception as every report in this
+doc). `ruff check` clean.
+Frontend: `tsc --noEmit` and `eslint` clean on every changed/new file; `npm run build` clean (fresh
+`.next`, learned from 6.17's stale-build Netlify failure to always clean-build before Playwright
+too); **2 new Playwright tests** in a new `e2e/admin-customers.spec.ts` (toggle flips and flips
+back with no reload; the control is unconditionally visible, not just when `is_test` is true) —
+the stub-backend fixture's `PATCH /api/admin/customers/{id}` mutates its shared in-memory fixture
+object, so the test that flips it restores the original value at the end for every other
+spec/project sharing that one stub-backend process. **Full local suite: 43 passed, 3 skipped**
+(2 live-login, 1 mobile-drawer-on-desktop — both pre-existing, unrelated skips).
+
+**Docs.** `docs/WORKFLOW.md` §4 ("Production test accounts") amended with a new subsection
+explaining both halves of the fix and why rules 1–3 still apply for any domain not on the
+heuristic's list.
+
+### Deploy + live verification
+
+*(filled in after push/deploy below)*

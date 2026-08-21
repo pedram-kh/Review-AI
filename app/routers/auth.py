@@ -44,6 +44,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _is_test_email_domain(email: str) -> bool:
+    """Ticket 6.18 — systemic fix for the recurring is_test mis-flag (customers 16, 18/19, 20,
+    25/26 all shipped `is_test=false` and had to be caught by hand across tickets 6.2/6.10/6.17).
+    Read fresh from `settings` on every call (not cached at import time) so a test's
+    `patch("app.routers.auth.settings")` or a runtime env change takes effect immediately —
+    same reasoning as every other per-request settings read in this module."""
+    domain = email.rsplit("@", 1)[-1].lower()
+    configured = {d.strip().lower() for d in settings.test_email_domains.split(",") if d.strip()}
+    return domain in configured
+
+
 # --- POST /api/auth/request-link ------------------------------------------------------------
 
 
@@ -155,8 +166,19 @@ def verify(body: VerifyBody, session: Session = Depends(get_session)) -> VerifyR
 
     customer = session.execute(select(Customer).where(Customer.email == email)).scalar_one_or_none()
     if customer is None:
-        customer = Customer(email=email, notification_email=email)
+        # Ticket 6.18: only a brand-new row gets the heuristic — retroactively flagging an
+        # existing customer's domain match here would be a silent behavior change on every one
+        # of their future logins, not a signup-time decision. Existing mis-flagged rows are a
+        # one-time cleanup (done for 16/18/19/20/25/26), not something this code path revisits.
+        is_test = _is_test_email_domain(email)
+        customer = Customer(email=email, notification_email=email, is_test=is_test)
         session.add(customer)
+        if is_test:
+            logger.info(
+                "New customer signup auto-flagged is_test=true (domain match, "
+                "TEST_EMAIL_DOMAINS): %s",
+                email,
+            )
 
     # Ticket 6.6, part C: copy this token's consent snapshot (NULL on an ordinary /login
     # request-link, set on a /signup one — see RequestLinkBody's own comment) onto the customer.

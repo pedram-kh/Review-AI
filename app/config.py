@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # Empty means the feature is quietly off, same "unset = unavailable, not a crash" posture as
     # postmark_token/stripe_secret_key above.
     ops_alert_email: str = ""
+    # Ticket 6.18 — systemic fix for the recurring is_test mis-flag (customers 16, 18/19, 20, 25/26
+    # all shipped as `is_test=false` and had to be caught and fixed by hand, tickets 6.2/6.10/6.17).
+    # Comma-separated email domains (case-insensitive); app.routers.auth.verify's lazy signup
+    # checks a new customer's email against this list and sets is_test=true automatically. A plain
+    # App Runner env var, not a secret — same posture as ops_alert_email — with the three domains
+    # the Stakeholder named as the default so local/test environments behave the same way out of
+    # the box without needing an explicit .env entry.
+    test_email_domains: str = "defraged.com,reviewguide.eu,pepehousing.com"
 
 
 def _load_settings() -> Settings:

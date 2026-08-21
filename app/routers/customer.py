@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_customer
 from app.db import get_session
-from app.jobs.day_one import STALE_RUN_AFTER, run_day_one_for_customer_locked
+from app.jobs.day_one import STALE_RUN_AFTER, claim_day_one_start, run_day_one_for_customer_locked
 from app.models import Alert, Customer, Place, Review
 from app.services.cost_guard import CostCapExceeded
 from app.services.maps_url import canonical_maps_url, parse_maps_url
@@ -333,7 +333,11 @@ class ConnectPlaceResponse(BaseModel):
     # Ticket 6.1: the connection itself IS complete when this returns (it is committed before the
     # response is built) — this flag reports only whether the day-one job was handed off to run
     # behind it. False means the customer connected but will get no welcome digest without an ops
-    # re-run, which is a different situation from "not yet finished" and must not read as success.
+    # re-run (ticket 6.1's original meaning), OR that the customer has no eligible (trialing/active)
+    # subscription yet and day-one is gated until a Stripe webhook starts it (ticket 6.17, partner
+    # feedback 11+12) — GET /api/customer/state's day_one.status reads `not_started` in both cases,
+    # so the panel's own subscription-status check (GET /api/billing/status) is what tells them
+    # apart for messaging purposes, not this flag.
     day_one_started: bool
 
 
@@ -441,21 +445,20 @@ def connect_place(
 
     place = session.get(Place, resolved_place_id)
 
-    # Marked as started here, in the request, rather than by the background task itself: the panel
-    # polls GET /api/customer/state immediately after this 202 lands, and a task that hasn't been
-    # given a thread yet would otherwise read back as `not_started` — indistinguishable, to the
-    # frontend, from a connect whose day-one was never scheduled at all. The background task
-    # re-stamps it with its own start time when it actually begins.
-    customer.day_one_started_at = datetime.now(UTC)
-    customer.day_one_finished_at = None
-    customer.day_one_result = None
-    session.commit()
-
-    customer_id = customer.customer_id
-    background_tasks.add_task(_run_day_one_and_log, customer_id)
+    # Ticket 6.17 (partner feedback 11+12): day-one no longer starts unconditionally at connect —
+    # only if the customer is ALREADY eligible (trialing/active subscription), which is the
+    # pay-then-connect order and is the one case ticket 6.1's original "always start here" design
+    # was actually correct for. The other order — connect-then-pay, the partner's own case — is
+    # covered instead by app.routers.billing.stripe_webhook calling this exact same
+    # claim_day_one_start once the subscription itself becomes eligible. See that function's
+    # docstring for the full two-call-site contract and why day_one_started_at doubles as the
+    # idempotency marker for both.
+    day_one_started = claim_day_one_start(customer, session)
+    if day_one_started:
+        background_tasks.add_task(_run_day_one_and_log, customer.customer_id)
 
     return ConnectPlaceResponse(
         place_id=resolved_place_id,
         name=place.name if place else resolved_name,
-        day_one_started=True,
+        day_one_started=day_one_started,
     )

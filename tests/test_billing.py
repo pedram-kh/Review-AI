@@ -7,6 +7,7 @@ mocked Postmark. `_apply_subscription_event`'s webhook-signature verification
 signed payload, since we're testing our own status-mapping logic, not Stripe's HMAC scheme.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,9 +45,18 @@ def _session_header(customer_id: int, email: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_customer(db_session, *, email: str, stripe_customer_id: str | None = None) -> Customer:
+def _seed_customer(
+    db_session,
+    *,
+    email: str,
+    stripe_customer_id: str | None = None,
+    place_id: str | None = None,
+) -> Customer:
     customer = Customer(
-        email=email, notification_email=email, stripe_customer_id=stripe_customer_id
+        email=email,
+        notification_email=email,
+        stripe_customer_id=stripe_customer_id,
+        place_id=place_id,
     )
     db_session.add(customer)
     db_session.commit()
@@ -413,3 +423,137 @@ def test_webhook_ignores_unhandled_event_types(db_session, billing_settings) -> 
         )
 
     assert response.status_code == 200
+
+
+# --- ticket 6.17 (partner feedback 11+12): webhook-triggered day-one (connect-then-pay order) ----
+# The partner connected a restaurant, abandoned Stripe at the card screen, and still got day-one
+# drafts + the welcome digest — because connect_place used to start day-one unconditionally. These
+# pin the fix's OTHER half: a subscription event making an already-connected customer eligible is
+# now the only thing that can start day-one for that order. app.routers.customer's tests cover the
+# connect_place side; claim_day_one_start's own contract is pinned directly in test_day_one.py.
+
+_DEFAULT_DAY_ONE_RESULT = {
+    "customer_id": 1,
+    "place_id": None,
+    "fetched_from_api": False,
+    "reviews_considered": 0,
+    "reviews_qualifying": 0,
+    "drafts_generated": 0,
+    "digest_sent": False,
+    "capped": False,
+    "cap_error": None,
+    "postmark_message_id": None,
+    "error": None,
+}
+
+
+@patch(
+    "app.routers.billing.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_webhook_starts_day_one_for_connected_customer_becoming_eligible(
+    mock_day_one: MagicMock, db_session, billing_settings
+) -> None:
+    """The exact partner-reported order: connect (place_id set, subscription_status="none" —
+    Customer's real-world default) happens BEFORE Stripe ever reports an eligible status."""
+    customer = _seed_customer(
+        db_session,
+        email="connect-then-pay@example.com",
+        stripe_customer_id="cus_becomes_eligible",
+        place_id="already-connected-place",
+    )
+    event = _mock_event("customer.subscription.created", "cus_becomes_eligible", "trialing")
+
+    with patch("stripe.Webhook.construct_event", return_value=event):
+        response = client.post(
+            "/api/billing/webhook", content=b"{}", headers={"Stripe-Signature": "sig"}
+        )
+
+    assert response.status_code == 200
+    mock_day_one.assert_called_once()
+    assert mock_day_one.call_args.args == (customer.customer_id,)
+    db_session.refresh(customer)
+    assert customer.subscription_status == "trialing"
+    assert customer.day_one_started_at is not None
+
+
+@patch(
+    "app.routers.billing.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_webhook_does_not_start_day_one_without_a_connected_place(
+    mock_day_one: MagicMock, db_session, billing_settings
+) -> None:
+    """Pay-then-connect order, before the connect half has happened — nothing to draft for yet;
+    app.routers.customer.connect_place is what starts day-one once the place lands, per the
+    'preserve current behavior for that order' instruction."""
+    customer = _seed_customer(
+        db_session, email="pay-before-connect@example.com", stripe_customer_id="cus_no_place"
+    )
+    event = _mock_event("customer.subscription.created", "cus_no_place", "trialing")
+
+    with patch("stripe.Webhook.construct_event", return_value=event):
+        client.post("/api/billing/webhook", content=b"{}", headers={"Stripe-Signature": "sig"})
+
+    mock_day_one.assert_not_called()
+    db_session.refresh(customer)
+    assert customer.subscription_status == "trialing"
+    assert customer.day_one_started_at is None
+
+
+@patch(
+    "app.routers.billing.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_webhook_replay_does_not_double_run_day_one(
+    mock_day_one: MagicMock, db_session, billing_settings
+) -> None:
+    """Stripe's own retry-on-slow-2xx behavior (already exercised for subscription_status by
+    test_webhook_is_idempotent_on_replay above) must not double-trigger the Claude/Postmark spend
+    day-one carries, even though the subscription-status write itself is a harmless re-apply."""
+    customer = _seed_customer(
+        db_session,
+        email="webhook-replay-day-one@example.com",
+        stripe_customer_id="cus_replay_day_one",
+        place_id="replay-place",
+    )
+    event = _mock_event("customer.subscription.created", "cus_replay_day_one", "trialing")
+
+    with patch("stripe.Webhook.construct_event", return_value=event):
+        first = client.post(
+            "/api/billing/webhook", content=b"{}", headers={"Stripe-Signature": "sig"}
+        )
+        second = client.post(
+            "/api/billing/webhook", content=b"{}", headers={"Stripe-Signature": "sig"}
+        )
+
+    assert first.status_code == second.status_code == 200
+    mock_day_one.assert_called_once()
+    db_session.refresh(customer)
+    assert customer.day_one_started_at is not None
+
+
+@patch(
+    "app.routers.billing.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_webhook_does_not_restart_day_one_on_a_later_unrelated_status_update(
+    mock_day_one: MagicMock, db_session, billing_settings
+) -> None:
+    """Day-one already ran once for this customer (e.g. at connect, pay-then-connect order); a
+    LATER subscription.updated event (renewal, plan change, etc.) must not be mistaken for a fresh
+    eligibility moment and re-fire the welcome digest."""
+    customer = _seed_customer(
+        db_session,
+        email="already-ran@example.com",
+        stripe_customer_id="cus_already_ran",
+        place_id="already-ran-place",
+    )
+    customer.subscription_status = "trialing"
+    customer.day_one_started_at = datetime.now(UTC)
+    customer.day_one_finished_at = datetime.now(UTC)
+    db_session.commit()
+    event = _mock_event("customer.subscription.updated", "cus_already_ran", "active")
+
+    with patch("stripe.Webhook.construct_event", return_value=event):
+        client.post("/api/billing/webhook", content=b"{}", headers={"Stripe-Signature": "sig"})
+
+    mock_day_one.assert_not_called()
+    db_session.refresh(customer)
+    assert customer.subscription_status == "active"

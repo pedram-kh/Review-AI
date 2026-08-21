@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.jobs.fetch_reviews import upsert_reviews
+from app.jobs.poll_customers import ELIGIBLE_STATUSES
 from app.logic_rules import detect_health_keyword
 from app.models import Alert, Customer, Place, Review
 from app.prompts import LeadContext
@@ -70,6 +71,61 @@ _RUNNING_CUSTOMER_IDS: set[int] = set()
 # is an App Runner restart — which every deploy causes — landing mid-run; past this window the
 # panel stops waiting instead of polling forever for an outcome no process is still producing.
 STALE_RUN_AFTER = timedelta(minutes=10)
+
+
+# Ticket 6.17 (partner feedback 11+12). Before this ticket, connect_place started day-one
+# unconditionally — a pre-CR-1 assumption from when every trial was cardless, so "connected" and
+# "receiving service" were the same moment. CR-1 made trials card-upfront but left this trigger
+# unchanged, and the partner proved the resulting hole live: connected a restaurant, abandoned
+# Stripe at the card screen, and still received day-one drafts + the welcome digest — free
+# service with no payment method on file. Day-one may now only start once a customer has BOTH a
+# connected place AND a Stripe subscription_status that already counts as "receiving service".
+
+
+def customer_is_eligible_for_day_one(customer: Customer) -> bool:
+    """`ELIGIBLE_STATUSES` is imported from app.jobs.poll_customers, not re-typed here — that is
+    the exact tuple the poller already gates ongoing polling on (LOGIC.md §8a), so this new
+    connect/day-one gate cannot silently drift out of agreement with it. Ticket instruction was
+    to verify and state that invariant, not change it — this import is that statement, enforced
+    in code rather than left as a comment someone could forget to update in only one place."""
+    return customer.place_id is not None and customer.subscription_status in ELIGIBLE_STATUSES
+
+
+def claim_day_one_start(customer: Customer, session: Session) -> bool:
+    """Returns True iff THIS call is the one that gets to start day-one for `customer` — the
+    caller must schedule `run_day_one_for_customer_locked` (via BackgroundTasks) if and only if
+    this returns True, and must not otherwise.
+
+    Two call sites race for this claim, one per connect order LOGIC.md §8a now distinguishes:
+    - `app.routers.customer.connect_place` — fires when the customer connects a place while
+      ALREADY eligible (pay-then-connect order; preserves ticket 6.1's original day-one-at-connect
+      behavior for exactly that order, per this ticket's own instruction).
+    - `app.routers.billing.stripe_webhook` — fires when a subscription event makes an
+      already-connected customer eligible for the first time (connect-then-pay order, the
+      partner's own case, which the old unconditional trigger got wrong).
+
+    `customer.day_one_started_at is None` is the "never claimed" marker — reused rather than a
+    new column, since ticket 6.1 already stamps it the moment a run is handed to a background
+    task and nothing before this ticket ever needed to distinguish "not eligible yet" from "not
+    started yet" (both read as `not_started` either way — see GET /api/customer/state). Stamping
+    it inside this same function, before returning True, closes the race a second, near-simultaneous
+    caller would otherwise hit: a duplicate Stripe webhook delivery (Stripe itself retries on a
+    slow 2xx), or a webhook landing moments after connect_place's own eligible-at-connect claim,
+    both see day_one_started_at already set on their (re-)read of the row and return False rather
+    than double-claiming. The actual Claude/Postmark spend is further guarded by
+    `run_day_one_for_customer_locked`'s own per-customer run-lock regardless — this function only
+    decides who gets to schedule that call at all, same "idempotency before spend" posture as
+    every cap in this codebase.
+    """
+    if not customer_is_eligible_for_day_one(customer):
+        return False
+    if customer.day_one_started_at is not None:
+        return False
+    customer.day_one_started_at = datetime.now(UTC)
+    customer.day_one_finished_at = None
+    customer.day_one_result = None
+    session.commit()
+    return True
 
 
 def _as_aware_utc(value: datetime | None) -> datetime | None:

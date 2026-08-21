@@ -16,7 +16,7 @@ import logging
 from datetime import UTC, datetime
 
 import stripe
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_customer
 from app.config import settings
 from app.db import get_session
+from app.jobs.day_one import claim_day_one_start, run_day_one_for_customer_locked
 from app.models import Customer
 
 logger = logging.getLogger(__name__)
@@ -181,9 +182,22 @@ def get_billing_status(customer: Customer = Depends(get_current_customer)) -> St
 # --- POST /api/billing/webhook ------------------------------------------------------------------
 
 
+def _run_day_one_and_log(customer_id: int) -> None:
+    """Ticket 6.17's webhook-triggered counterpart to app.routers.customer._run_day_one_and_log —
+    duplicated rather than imported across router modules (small, ~4 lines) so each router keeps
+    owning how it logs its own background task; the actual gating/idempotency logic they both
+    depend on (claim_day_one_start) lives once in app.jobs.day_one, imported by both."""
+    result = run_day_one_for_customer_locked(
+        customer_id,
+        on_progress=lambda msg: logger.info("day-one[customer=%s]: %s", customer_id, msg),
+    )
+    logger.info("day-one[customer=%s]: run complete — %s", customer_id, result)
+
+
 @router.post("/webhook")
 async def stripe_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
@@ -204,18 +218,27 @@ async def stripe_webhook(
         "customer.subscription.updated",
         "customer.subscription.deleted",
     ):
-        _apply_subscription_event(event, session)
+        customer = _apply_subscription_event(event, session)
+        # Ticket 6.17 (partner feedback 11+12): this is the connect-then-pay order's ONLY trigger
+        # for day-one — a customer who connected a place before this subscription existed/became
+        # eligible gets no digest at all until a subscription event lands here. claim_day_one_start
+        # itself re-checks place_id + subscription_status and the day_one_started_at idempotency
+        # marker, so a customer who was already ineligible, already started, or has no place
+        # connected yet safely no-ops.
+        if customer is not None and claim_day_one_start(customer, session):
+            background_tasks.add_task(_run_day_one_and_log, customer.customer_id)
     else:
         logger.info("Ignoring unhandled Stripe event type: %s", event_type)
 
     # Idempotent by construction: every handled event type just sets subscription_status to
     # whatever Stripe says the subscription's *current* status is (or "none" on deletion) keyed
     # off stripe_customer_id — replaying the same event (Stripe's own retry behavior on a slow
-    # 2xx) re-applies the same value rather than compounding a side effect.
+    # 2xx) re-applies the same value rather than compounding a side effect. claim_day_one_start
+    # adds the same guarantee for the day-one side-effect this handler now also carries.
     return {"received": True}
 
 
-def _apply_subscription_event(event: dict, session: Session) -> None:
+def _apply_subscription_event(event: dict, session: Session) -> Customer | None:
     subscription = event["data"]["object"]
     stripe_customer_id = subscription["customer"]
 
@@ -230,10 +253,11 @@ def _apply_subscription_event(event: dict, session: Session) -> None:
             stripe_customer_id,
             event["type"],
         )
-        return
+        return None
 
     if event["type"] == "customer.subscription.deleted":
         customer.subscription_status = _DELETED_STATUS
     else:
         customer.subscription_status = subscription["status"]
     session.commit()
+    return customer

@@ -1312,3 +1312,146 @@ items 1–2 above, already executed, tested, deployed, live-verified, and **PM-a
 duplicating already-accepted work. The original 6.16 ticket had no separate "Q3 fix" (Q3 was a
 6.15 source-fidelity *finding*, not a code defect); flagging this rather than guessing at
 unscoped work — happy to pick up a specific Q3 item if the Stakeholder has one in mind.
+
+## 6.17 — Subscription gating + onboarding reorder (Partner feedback items 11+12)
+
+**Origin:** Stakeholder/PM ticket, 2026-08-21. CR-1 (2026-08-09) made trials card-upfront, but the
+day-one job kept firing at connect time — a pre-CR-1 assumption from when every trial was
+cardless, so "connected" and "receiving service" were the same moment. The partner proved the
+resulting hole live: connected a restaurant (`p.zietara@pepehousing.com`, "Legend 97' Kebab"),
+abandoned Stripe at the card screen, and still received day-one drafts + the welcome digest — free
+service with no payment method on file.
+
+### 1. Gate the day-one job
+
+`app/jobs/day_one.py` gains two functions, both new, no new column:
+
+- `customer_is_eligible_for_day_one(customer)` — `place_id is not None AND subscription_status in
+  ELIGIBLE_STATUSES`. `ELIGIBLE_STATUSES` is **imported from `app.jobs.poll_customers`**, not
+  re-typed — the ticket's own instruction was "the poller's gate already covers ongoing polling —
+  verify and state, don't change," and importing the tuple is that statement enforced in code: the
+  two gates cannot silently drift apart.
+- `claim_day_one_start(customer, session)` — returns `True` iff THIS call gets to start day-one:
+  checks eligibility, then checks `customer.day_one_started_at is None` (the "never claimed"
+  marker — reused, not a new column, since ticket 6.1 already stamps it the moment a run is handed
+  to a background task), and if both hold, stamps it and commits before returning `True`. A second,
+  near-simultaneous caller re-reads a non-`NULL` timestamp and gets `False`.
+
+Two call sites race for that one claim, covering both connect orders:
+
+- **`POST /api/customer/connect-place`** (`app/routers/customer.py`) — calls
+  `claim_day_one_start` right where it used to stamp `day_one_started_at` unconditionally. Fires
+  immediately only if the customer is **already** eligible at connect time — this is
+  **pay-then-connect order**, and it is ticket 6.1's original "day-one at connect" behavior,
+  **preserved exactly** for this one order per the ticket's own instruction. `ConnectPlaceResponse.
+  day_one_started` now legitimately means two different things as `False` (not started yet vs.
+  gated) — disclosed in the field's own docstring; the panel's separate `GET /api/billing/status`
+  call is what tells them apart for messaging.
+- **Stripe webhook handler**, `customer.subscription.created`/`updated`
+  (`app/routers/billing.py`) — `_apply_subscription_event` now returns the `Customer` row it
+  updated (was `None`-returning before); the webhook handler calls `claim_day_one_start` on it
+  right after the status write. Fires the moment a **connected** customer's subscription becomes
+  eligible for the first time — **connect-then-pay order**, the partner's own case, which the old
+  unconditional-at-connect trigger got wrong. A customer not yet connected (`place_id is None`)
+  safely no-ops here; `app.routers.customer.connect_place` is what starts day-one for them once
+  they do connect, by the bullet above.
+
+Each router keeps its own small `_run_day_one_and_log` background-task wrapper (a few lines,
+duplicated on purpose rather than cross-imported as a private name between router modules) — both
+call the same `run_day_one_for_customer_locked`, so the existing per-customer run-lock
+(`_RUNNING_CUSTOMER_IDS`, ticket 6.1) still serializes actual Claude/Postmark spend even in the
+(believed-unreachable-in-practice, but not relied upon) case where both call sites raced to a
+`True` claim at the database level.
+
+**Tests (`tests/test_day_one.py`, `tests/test_customer.py`, `tests/test_billing.py`):**
+`customer_is_eligible_for_day_one`/`claim_day_one_start` pinned directly (eligible/ineligible per
+status, no-place case, single-claim idempotency); `connect_place` tests updated — its `_seed_customer`
+helper now defaults to `subscription_status="trialing"` (disclosed: every pre-existing test in
+this file implicitly assumed "connected" meant "eligible," true before this ticket, so the default
+preserves each test's original intent without touching ~10 of them individually) with new tests for
+`subscription_status="none"`/other non-service statuses (day-one NOT started, connection still
+succeeds) and the pay-then-connect order (day-one starts, `trialing`/`active` parametrized);
+webhook tests for: day-one starting on a connected customer's first eligible event, NOT starting
+without a connected place, a replayed webhook not double-running day-one (mock called once across
+two requests), and a later unrelated `subscription.updated` not re-firing an already-started
+customer's day-one. **430 backend tests pass** (tunnel open, `test_health` included).
+
+### 2. The partner's case — verified, not modified
+
+Queried both accounts via the SSM bastion (read-only):
+
+| Field | Customer 25, `pkzietara@gmail.com` (PAPU) | Customer 26, `p.zietara@pepehousing.com` (Legend 97' Kebab) |
+|---|---|---|
+| `place_id` | `ChIJr5OQYn23EEcRUzQ80140sZo` | `ChIJ_TVFOfW3EEcRJh_N1h11cXc` |
+| `connected_at` | 2026-08-17 20:35:00 UTC | 2026-08-17 21:13:36 UTC |
+| `subscription_status` **now** | `trialing` | **`none`** |
+| `day_one_started_at`/`finished_at` | both set, 2026-08-17 | both set, 2026-08-17 |
+| Alerts | 10 `digest` (day-one) + 1 `alert` with a real `run_id` (poller has run for them since) | **10 `digest` (day-one) only — zero poller-run alerts, ever** |
+
+**Customer 26 is the exact pre-fix specimen**: day-one ran and sent a 10-review welcome digest with
+no subscription on file, and their poll-eligibility has been **correctly `OFF` this entire time**
+— confirmed, not assumed, by the alerts table itself: zero rows carry a `run_id`, meaning
+`poll_customers.py`'s `_select_eligible_customers` (which filters on `subscription_status IN
+('trialing','active')`) has never once selected this customer. Nothing to fix on the polling side,
+matching the ticket's "already covers ongoing polling — verify and state, don't change"
+instruction — this is that verification.
+
+**Customer 25 (`pkzietara@gmail.com`) is NOT in the same state** — the ticket's own conditional
+("if same state") does not apply: `subscription_status` is `trialing` today, and the one `alert`
+row with a real `run_id` proves the poller has legitimately run for them since. Whatever their
+exact status was at the 2026-08-17 20:35 connect moment (unrecoverable from the current row alone),
+they are eligible now — no cleanup action taken.
+
+**Per the ticket's explicit instruction, existing data was left untouched**: no alert rows deleted,
+no `day_one_started_at`/`day_one_result` cleared, no subscription_status changed. Both are noted
+below as pre-fix specimens.
+
+### 3. Onboarding reorder (`reviewguide-app`)
+
+`app/(customer)/app/CustomerPanel.tsx`:
+
+- **`RestaurantHero`'s monitoring line is now conditional** on `isSubscribed`. Subscribed: unchanged
+  (`monitoring aktywny · ostatnie sprawdzenie: …`, pulsing gold dot). Unsubscribed: **"monitoring
+  nieaktywny — dodaj kartę, aby rozpocząć"**, with a new static (non-animated) `.pulse-dot-inactive`
+  dot (`app/globals.css`) — the old copy claimed live monitoring for an account the backend's own
+  gate above has genuinely never polled/day-one'd, which would have been a second copy of the exact
+  bug this ticket fixes, just in the UI instead of the job trigger.
+- **New primary CTA, `CheckoutActivationCard`**, rendered directly under the hero (replacing the old
+  small "Subskrypcja nieaktywna. *Rozpocznij okres próbny* w Ustawieniach." text-link) whenever
+  connected + unsubscribed + the Ustawienia tab isn't already open. It is the **real checkout
+  form** — consent checkbox (ticket 6.6 part C's ToS §8.3 withdrawal-waiver, unchanged wording) +
+  submit button, both extracted into a shared `CheckoutForm` component reused by `SettingsCard`'s
+  own Ustawienia-tab copy of the same form (so the two access points cannot drift into saying
+  different things about the same action). Button text on both, per the ticket: **"Dodaj kartę,
+  aby rozpocząć"** (was "Rozpocznij okres próbny"). Posts straight to the existing
+  `/api/billing/checkout` route handler — no new backend endpoint.
+- **Empty states.** `AlertsList` already supported an `empty` override prop (unused until now);
+  `HistoryTable` gained one (mirroring it). `CustomerPanel` passes **"Twoje odpowiedzi pojawią się
+  po aktywacji."** for both Najnowsze and Historia when `!isSubscribed`, replacing the generic "nie
+  masz jeszcze żadnych alertów" copy that implies nothing has happened yet rather than "day-one is
+  gated."
+
+**Tests:** `npx tsc --noEmit` clean; `eslint` clean on changed files; `npm run build` (production,
+required — Playwright's `webServer` runs `next start` against the last build, `reuseExistingServer`
+means a stale build silently serves old JSX otherwise, caught live this session); node unit tests
+(`test:format` 6/6, `test:alert-groups` 6/6) unaffected. `e2e/customer-panel.spec.ts`: one
+pre-existing test's fixture updated (`billingStatus: trialing` added — that test is about the
+day-one progress→ready transition, the pay-then-connect order, not the gate itself); **3 new
+tests** in a new `customer panel — subscription gate (ticket 6.17)` describe block: hero shows the
+inactive line + primary activation CTA (form action/required-checkbox asserted, not submitted —
+the stub backend doesn't implement `/api/billing/checkout`, matching how `Zarządzaj subskrypcją`
+is already only visibility-checked elsewhere in this file) and never "monitoring aktywny"; Najnowsze
++ Historia show the activation-aware empty message, not the generic one; Ustawienia still offers
+the same CTA as a second access point. **Full local Playwright suite: 39 passed, 3 skipped**
+(2 live-login — no live env this session, 1 mobile-drawer — needs a real touch device), both
+projects.
+
+### 4. `LOGIC.md` §8a
+
+Day-one bullet amended: "on connect" → "on first eligible subscription with connected place," with
+the gate + two-call-site contract written out and a changelog row (PM + Stakeholder, partner
+feedback items 11+12, ticket 6.17).
+
+### Deploy + live verification
+
+*(filled in after push/deploy below)*

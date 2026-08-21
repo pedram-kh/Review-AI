@@ -42,8 +42,25 @@ def _session_header(customer_id: int, email: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_customer(db_session, *, email: str, place_id: str | None = None) -> Customer:
-    customer = Customer(email=email, notification_email=email, place_id=place_id)
+def _seed_customer(
+    db_session,
+    *,
+    email: str,
+    place_id: str | None = None,
+    # Ticket 6.17 (partner feedback 11+12): every test in this file predates the subscription
+    # gate and implicitly assumed "connected" meant "eligible for day-one" — true before this
+    # ticket, no longer true after it. Defaulting to "trialing" here (rather than the real-world
+    # default of "none") keeps every pre-existing test's actual intent (exercising connect-flow
+    # mechanics, not the gate itself) valid without touching each one; tests that exercise the
+    # gate itself pass subscription_status="none" explicitly, right below.
+    subscription_status: str = "trialing",
+) -> Customer:
+    customer = Customer(
+        email=email,
+        notification_email=email,
+        place_id=place_id,
+        subscription_status=subscription_status,
+    )
     db_session.add(customer)
     db_session.commit()
     db_session.refresh(customer)
@@ -619,6 +636,97 @@ def test_connect_succeeds_even_if_day_one_job_fails(
     assert response.json()["day_one_started"] is True
     db_session.refresh(customer)
     assert customer.place_id == "p-resilient"
+
+
+# --- ticket 6.17 (partner feedback 11+12): subscription gate on connect --------------------------
+# The partner's own reported bug: connect a restaurant, abandon Stripe at the card screen, still
+# get day-one drafts + the welcome digest. These pin the fix at the connect_place boundary; the
+# opposite (connect-then-pay) order is covered in tests/test_billing.py's webhook tests, and
+# claim_day_one_start's own contract is pinned directly in tests/test_day_one.py.
+
+
+@patch(
+    "app.routers.customer.run_day_one_for_customer_locked", return_value=_DEFAULT_DAY_ONE_RESULT
+)
+def test_connect_place_without_subscription_does_not_start_day_one(
+    mock_day_one: MagicMock, db_session, auth_settings
+) -> None:
+    """The exact hole the partner found: connect-then-pay, but the "pay" half never happened."""
+    customer = _seed_customer(
+        db_session, email="connect-no-sub@example.com", subscription_status="none"
+    )
+
+    response = client.post(
+        "/api/customer/connect-place",
+        json={"place_id": "unpaid-place", "name": "Restauracja Bez Karty"},
+        headers=_session_header(customer.customer_id, customer.email),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["day_one_started"] is False
+    mock_day_one.assert_not_called()
+
+    db_session.refresh(customer)
+    # The connection itself still succeeds — only day-one is gated, per ticket 6.1's original
+    # "connect and day-one are separate concerns" split, now extended by one more condition.
+    assert customer.place_id == "unpaid-place"
+    assert customer.connected_at is not None
+    assert customer.day_one_started_at is None
+
+
+@pytest.mark.parametrize(
+    "status", ["past_due", "canceled", "unpaid", "incomplete", "incomplete_expired"]
+)
+def test_connect_place_does_not_start_day_one_for_non_service_statuses(
+    db_session, auth_settings, status
+) -> None:
+    with patch(
+        "app.routers.customer.run_day_one_for_customer_locked",
+        return_value=_DEFAULT_DAY_ONE_RESULT,
+    ) as mock_day_one:
+        customer = _seed_customer(
+            db_session, email=f"connect-{status}@example.com", subscription_status=status
+        )
+
+        response = client.post(
+            "/api/customer/connect-place",
+            json={"place_id": f"place-{status}"},
+            headers=_session_header(customer.customer_id, customer.email),
+        )
+
+        assert response.json()["day_one_started"] is False
+        mock_day_one.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["trialing", "active"])
+def test_connect_place_starts_day_one_when_already_subscribed_pay_then_connect_order(
+    db_session, auth_settings, status
+) -> None:
+    """Pay-then-connect order (subscribe first, connect second) must keep working exactly as
+    ticket 6.1 originally built it — the ticket's own "preserve current behavior for that order"
+    instruction."""
+    with patch(
+        "app.routers.customer.run_day_one_for_customer_locked",
+        return_value=_DEFAULT_DAY_ONE_RESULT,
+    ) as mock_day_one:
+        customer = _seed_customer(
+            db_session, email=f"pay-then-connect-{status}@example.com", subscription_status=status
+        )
+
+        response = client.post(
+            "/api/customer/connect-place",
+            json={"place_id": f"already-paid-{status}"},
+            headers=_session_header(customer.customer_id, customer.email),
+        )
+
+        assert response.status_code == 202
+        assert response.json()["day_one_started"] is True
+        mock_day_one.assert_called_once()
+        assert mock_day_one.call_args.args == (customer.customer_id,)
+
+    db_session.refresh(customer)
+    assert customer.day_one_started_at is not None
 
 
 # --- GET /api/customer/state — day-one run state (ticket 6.1) ------------------------------------

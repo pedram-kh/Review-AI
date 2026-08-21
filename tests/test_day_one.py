@@ -27,6 +27,8 @@ import pytest
 
 from app.jobs.day_one import (
     _empty_result,
+    claim_day_one_start,
+    customer_is_eligible_for_day_one,
     run_day_one_for_customer,
     run_day_one_for_customer_locked,
 )
@@ -94,6 +96,88 @@ def _seed_customer(db_session, *, place_id="p1") -> Customer:
 
 def _generated(text: str) -> GeneratedResponse:
     return GeneratedResponse(text=text, stop_reason="end_turn")
+
+
+# --- ticket 6.17 (partner feedback 11+12): subscription gate ------------------------------------
+# app.routers.customer.connect_place and app.routers.billing.stripe_webhook are exercised
+# end-to-end in tests/test_customer.py and tests/test_billing.py respectively; these tests pin
+# claim_day_one_start's own contract directly, independent of either caller.
+
+
+@pytest.mark.parametrize("status", ["trialing", "active"])
+def test_eligible_when_place_connected_and_status_eligible(db_session, status) -> None:
+    customer = _seed_customer(db_session)
+    customer.subscription_status = status
+    db_session.commit()
+    assert customer_is_eligible_for_day_one(customer) is True
+
+
+@pytest.mark.parametrize(
+    "status", ["none", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired"]
+)
+def test_ineligible_for_non_service_statuses_even_with_place_connected(db_session, status) -> None:
+    """The exact partner-reported hole: a connected place with no eligible subscription must not
+    read as eligible, no matter how far the customer got into Stripe before abandoning it."""
+    customer = _seed_customer(db_session)
+    customer.subscription_status = status
+    db_session.commit()
+    assert customer_is_eligible_for_day_one(customer) is False
+
+
+def test_ineligible_without_a_connected_place_even_if_subscription_is_active() -> None:
+    """Pay-then-connect order, before the connect half has happened yet — nothing to draft for."""
+    customer = Customer(
+        email="paid-not-connected@example.com",
+        notification_email="paid-not-connected@example.com",
+        place_id=None,
+        subscription_status="active",
+    )
+    assert customer_is_eligible_for_day_one(customer) is False
+
+
+def test_claim_day_one_start_claims_once_for_an_eligible_never_started_customer(db_session) -> None:
+    customer = _seed_customer(db_session)
+    customer.subscription_status = "trialing"
+    db_session.commit()
+
+    claimed = claim_day_one_start(customer, db_session)
+
+    assert claimed is True
+    db_session.refresh(customer)
+    assert customer.day_one_started_at is not None
+    assert customer.day_one_finished_at is None
+    assert customer.day_one_result is None
+
+
+def test_claim_day_one_start_refuses_when_ineligible(db_session) -> None:
+    customer = _seed_customer(db_session)
+    customer.subscription_status = "none"
+    db_session.commit()
+
+    claimed = claim_day_one_start(customer, db_session)
+
+    assert claimed is False
+    db_session.refresh(customer)
+    assert customer.day_one_started_at is None
+
+
+def test_claim_day_one_start_is_idempotent_against_a_second_claim(db_session) -> None:
+    """The double-webhook / webhook-races-connect case: once a run has been claimed, a second
+    caller (Stripe's own retry on a slow 2xx, or a webhook landing moments after connect_place's
+    own eligible-at-connect claim) must get False, not a second background task."""
+    customer = _seed_customer(db_session)
+    customer.subscription_status = "trialing"
+    db_session.commit()
+
+    first = claim_day_one_start(customer, db_session)
+    db_session.refresh(customer)
+    first_stamp = customer.day_one_started_at
+    second = claim_day_one_start(customer, db_session)
+
+    assert first is True
+    assert second is False
+    db_session.refresh(customer)
+    assert customer.day_one_started_at == first_stamp
 
 
 @patch("app.jobs.day_one.ClaudeClient")

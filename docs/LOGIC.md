@@ -160,16 +160,35 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
   `<restauracja miasto="...">` attribute, never interpolated inline (Polish locative declension).
 - **Public promise wording:** "w ciągu maksymalnie 2 godzin" (NOT "w ciągu godziny") — landing,
   outreach template, and alert emails must all match the real cycle.
-- **Day-one value:** on connect, generate drafts for the customer's existing recent reviews and
-  send a welcome digest immediately.
+- **Day-one value:** on first eligible subscription with connected place, generate drafts for the
+  customer's existing recent reviews and send a welcome digest immediately.
+  - **Subscription gate (ticket 6.17, 2026-08-21).** Day-one no longer starts merely because a
+    place got connected — connecting alone used to trigger it unconditionally, a pre-CR-1
+    assumption (every trial was cardless then, so "connected" and "receiving service" were the
+    same moment) that CR-1's card-upfront trial left stale. The partner proved the resulting hole
+    live: connected a restaurant, abandoned Stripe at the card screen, and still received day-one
+    drafts + the welcome digest — free service with no payment method on file. Day-one now starts
+    the moment a customer has BOTH a connected place AND a `subscription_status` that already
+    counts as "receiving service" — the exact same tuple (`trialing`/`active`) the poller's own
+    `ELIGIBLE_STATUSES` gates ongoing polling on (imported, not re-typed, in
+    `app.jobs.day_one.customer_is_eligible_for_day_one` — the two gates cannot silently drift
+    apart). Two call sites race for the one-time claim (`app.jobs.day_one.claim_day_one_start`,
+    keyed off `day_one_started_at` staying `NULL` until claimed — no new column):
+    - `POST /api/customer/connect-place` — fires immediately if the customer is ALREADY eligible
+      at connect time (pay-then-connect order; this is ticket 6.1's original "day-one at connect"
+      behavior, preserved for exactly this order).
+    - The Stripe webhook handler (`customer.subscription.created`/`updated`) — fires the moment a
+      connected customer's subscription becomes eligible for the first time (connect-then-pay
+      order, the partner's own case, which the old unconditional trigger got wrong).
   - **Connect is asynchronous (ticket 6.1, 2026-08-09).** `POST /api/customer/connect-place` commits
-    the connection and answers **202** at once; the day-one job then runs behind it. The customer is
-    connected the moment they click, but their drafts arrive up to a minute later, and the panel
-    says so explicitly instead of implying both happened together. Forced by measurement, not
-    preference: day-one takes ~58s for a new restaurant (Outscraper + up to ten sequential Claude
-    calls + the digest), while the Netlify function fronting the endpoint is capped at 10s (26s
-    maximum) — the old synchronous version returned an HTML gateway error to a customer whose
-    connect had actually succeeded. Same reasoning, and the same fix, as the poller's 202 above.
+    the connection and answers **202** at once; the day-one job then runs behind it, if and only if
+    the subscription gate above claims it. The customer is connected the moment they click, but
+    their drafts (if any run starts at all) arrive up to a minute later, and the panel says so
+    explicitly instead of implying both happened together. Forced by measurement, not preference:
+    day-one takes ~58s for a new restaurant (Outscraper + up to ten sequential Claude calls + the
+    digest), while the Netlify function fronting the endpoint is capped at 10s (26s maximum) — the
+    old synchronous version returned an HTML gateway error to a customer whose connect had actually
+    succeeded. Same reasoning, and the same fix, as the poller's 202 above.
   - Run state (`running` / `done` / `failed` / `stale`) is persisted per customer and read back via
     `GET /api/customer/state`; a run that never records a finish (an App Runner restart mid-run)
     reads as `stale` after 10 minutes so nothing waits on it forever. One customer's day-one may
@@ -203,6 +222,7 @@ Skips to dead from pre-sent statuses require a note (why we're abandoning the le
 
 | Date | Change | Approved by |
 |---|---|---|
+| 2026-08-21 | §8a day-one bullet amended: "on connect" → "on first eligible subscription with connected place". Day-one no longer fires unconditionally at connect — it starts via `app.jobs.day_one.claim_day_one_start`, claimed either at connect-place (if already eligible — pay-then-connect order) or from the Stripe webhook handler (`customer.subscription.created`/`updated`, the moment a connected customer becomes eligible — connect-then-pay order, the case the partner reported). Reuses the poller's own `ELIGIBLE_STATUSES` rather than a second tuple. Partner feedback items 11+12, ticket 6.17 | PM + Stakeholder |
 | 2026-08-15 | `SPRINT_05.md` ticket 5.4 spec text reconciled with shipped reality: "no external images (deliverability)" amended to "single hotlinked brand mark from reviewguide.eu permitted; no other external images; plaintext part remains image-free". Ticket 6.2 already shipped this reversal (one `<img>` hotlinking `https://reviewguide.eu/icon-192.png` in both HTML templates, disclosed at the time in `app/templates.py`'s own module docstring) and ticket 6.7 swapped the mark itself — this entry just brings the written spec into agreement with code that has been live since 6.2. No template/code change | PM |
 | 2026-08-14 | §8a ticket 6.4 amendment: ops notifications (one bundled email to `OPS_ALERT_EMAIL` on records >70% of cap, deferred>0, skipped>0, or aborted; silent on a healthy run) + `/admin/runs`'s and `/admin/customers/[id]`'s run-header groups made collapsible (newest open, older collapsed) — pure presentation, no data change | PM + Stakeholder |
 | 2026-08-13 | §8a polling overhaul (ticket 6.4): 2-base adaptive fetch ladder (2→10→25, per-customer records cap 10→25), one batched digest per run per customer with ≤3★ urgent breakout, daily cap redefined as emails-delivered and demoted to a pure runaway guard, un-alerted selection unwindowed within ≤60d/`connected_at` bounds, run observability (`poll_runs` + `alerts.run_id` + `/admin/runs`). Prompted by the 2026-08-11 ten-emails-in-one-minute incident. Discloses that the ≤500 records cap now aborts every run above 20 customers | PM + Stakeholder |

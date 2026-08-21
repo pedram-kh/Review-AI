@@ -1249,3 +1249,8 @@ header now shows each review's true date. (Incidental, disclosed: `netlify deplo
 Functions bundling step touched `deno.lock` by 2 lines as a side effect — left uncommitted, not
 part of this ticket's actual change, matching the "don't smooth over incidental diffs" posture
 used throughout this log.)
+
+**PROGRESS row:** ✅ **ACCEPTED (PM, 2026-08-18)** — "decisive fetch settles Q1:
+provider-index-vs-public-UI filtering gap, not removal; the Q2 fix live-verified against the
+exact disputed review; COALESCE-safe backfill and full evidence trail approved. Q1's finding is
+reframed as a product strength: we surface reviews the public page filters."

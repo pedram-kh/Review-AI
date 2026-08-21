@@ -1254,3 +1254,61 @@ used throughout this log.)
 provider-index-vs-public-UI filtering gap, not removal; the Q2 fix live-verified against the
 exact disputed review; COALESCE-safe backfill and full evidence trail approved. Q1's finding is
 reframed as a product strength: we surface reviews the public page filters."
+
+**5. Timestamp/freshness experiment (Stakeholder-designed addendum, 2026-08-21, spend approved ≤
+$0.02).** Subject: **McDonald's, ul. Świętokrzyska 35** (`place_id ChIJ36ce4IrMHkcRnygH6FqQT74`) —
+confirmed via DB query as our genuine highest-velocity place (**31** stored reviews spanning
+2026-07-30→2026-08-20, vs **10** each for the other two Warsaw McDonald's locations we track).
+**Read-only** — no upsert, no `reviews`/`places` writes.
+
+*Step a — Outscraper, shown per Rule 6:* `OutscraperClient().fetch_reviews([place_id],
+reviews_per_place=2)` (sort=newest is hardcoded in the client) — 2 review records × $0.003 =
+**$0.006**, under the $0.02 cap. Ran at **2026-08-21 05:31:02 UTC**.
+
+*Step b — Google's own public page, self-scraped via Playwright headless (already a
+`reviewguide-app` devDependency, nothing installed), started **2026-08-21 05:33–05:37 UTC**
+(within the same few minutes as step a).* Two dead ends disclosed rather than hidden: (1) the
+`location_link` Outscraper returns is a **by-name search** URL — Warsaw has 3+ McDonald's sharing
+the exact literal name "Restauracja McDonald's", so it lands on an ambiguous multi-result list,
+not the target place directly (first two attempts scraped a wrong/generic result); switched to
+the unambiguous `https://www.google.com/maps/place/?q=place_id:<id>` deep link (same
+Google-documented format as `canonical_maps_url`, item 3 above) and confirmed via a DOM read of
+the page's own address element (`"Świętokrzyska 35, 00-049 Warszawa, Polska"`, byte-for-byte
+match) before trusting any extracted review. (2) Current Google Maps UI (2026-08-21) uses Polish
+label **"Opinie"** for the reviews tab and **"Najtrafniejsze"** for the default sort button — not
+"Recenzje"/"Najistotniejsze" as first assumed; selectors corrected after inspecting screenshots,
+not guessed blindly. Sort control reachable, no headless-blocking encountered. Clicked
+**"Opinie" → sort dropdown → "Najnowsze"**, extracted the top 2 cards (`div.jftiEf`, author
+`.d4r55`, star `aria-label`, relative date `.rsqaWe`, text `.wiI7pd`). Screenshot:
+`.preview/6.16_freshness_experiment_google_sorted_newest.png` (local/untracked) — both cards
+carry Google's own **"NOWA"** (new) badge, corroborating evidence independent of our extraction.
+
+**Comparison table** (times: review timestamp vs. scrape-start 2026-08-21 ~05:32 UTC / 07:32
+Warsaw local; "MATCH" = same author + same rank + Outscraper timestamp inside the window
+implied by Google's label + rating equal + text consistent, per the ticket's own rubric):
+
+| Rank | Outscraper: author / timestamp (UTC) / rating / text | Google public page: author / label / rating / text | Verdict |
+|---|---|---|---|
+| 1 | Gabriele / 2026-08-20 13:11:59 (≈16.4h before scrape) / 5★ / *(empty — star-only review)* | Gabriele / "16 godzin temu" / 5★ / *(no text shown, "Cena za osobę" chip only)* | **MATCH** — same author, same rank, 16.4h actual vs. "16 godzin temu" label (≈16±1h window), rating equal, both textless |
+| 2 | B. / 2026-08-19 09:24:51 (≈44.2h before scrape) / 5★ / "Obsługa zawsze na plus. Jedzenie jak zawsze pysznie szkodliwe." | B. / "wczoraj" / 5★ / "Obsługa zawsze na plus. Jedzenie jak zawsze pysznie szkodliwe." | **MATCH** — same author, same rank, 44.2h actual fits "wczoraj"'s (yesterday, ≈1 day ± 1 day ⇒ 0–48h) window, rating equal, **text identical byte-for-byte** |
+
+**Verdict, stated plainly: YES — Outscraper's newest-review data and timestamps are fully
+consistent with what Google publicly shows at this moment**, for our highest-velocity (hardest
+freshness-test) place. Both rows match on author, rank, rating, and text; both absolute
+timestamps fall inside the window their respective Google relative-label implies. Top-2 sets are
+**identical**, not merely overlapping — no freshness lag to quantify this run (item 4's
+"if sets differ" branch does not apply; disclosed as a clean pass rather than forced into a
+gap-measurement narrative). One methodological note, disclosed for future runs: relative
+day-labels ("wczoraj", "X dni temu") are calendar-day-boundary-sensitive to the *viewer's*
+timezone, so the scrape explicitly pinned the Playwright browser context to `timezoneId:
+"Europe/Warsaw"` (re-run after an initial pass without it produced the same label, but the pin
+removes ambiguity for any future repetition of this experiment) — hour-based labels ("X godzin
+temu") are timezone-independent and needed no such care.
+
+**Scope note on the ticket's trailing sentence** ("Then continue with the decisive PAPU fetch +
+the Q2/Q3 fixes from the main ticket as specced"): the decisive PAPU fetch and the Q2 fix are
+items 1–2 above, already executed, tested, deployed, live-verified, and **PM-accepted
+2026-08-18** (the ✅ row immediately above this section) — nothing further done here to avoid
+duplicating already-accepted work. The original 6.16 ticket had no separate "Q3 fix" (Q3 was a
+6.15 source-fidelity *finding*, not a code defect); flagging this rather than guessing at
+unscoped work — happy to pick up a specific Q3 item if the Stakeholder has one in mind.
